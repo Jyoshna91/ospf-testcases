@@ -1,0 +1,824 @@
+from genie.testbed import load
+from pyats.topology import loader
+from pyats import aetest
+import re, logging
+import pdb 
+from pyats.results import Passed,Failed
+from pyats.async_.exceptions import *
+from testcase_ospf_lib import Ospf_common_functions
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+import time
+global device_list
+
+#easypy job_file -t testbed_yaml_file -datafile datafile
+
+class CommonSetup(aetest.CommonSetup):
+
+    @aetest.subsection
+    def print_testbed_information(self,testbed):
+        #pdb.set_trace()
+        global uut1,uut2,uut3,device_list,device_info
+        uut1 = testbed.devices['dut1']
+        self.parent.parameters.update(uut1 = uut1)
+        uut2 = testbed.devices['dut3']
+        self.parent.parameters.update(uut2 = uut2)
+        uut3 = testbed.devices['dut2']
+        self.parent.parameters.update(uut3 = uut3)
+
+        device_list = [uut1,uut2,uut3]
+        device_info = {}
+
+        if not testbed:
+            logging.info("No testbed was provided to script launch")
+        else:
+            uut = testbed.devices['dut1']
+            for device in testbed:
+                logging.info("Device name : %s "%device.name)
+                device_info.update({device.name: []})
+                for intf in device:
+                   logging.info("Interface : %s"%intf.name)
+                   device_info[device.name].append(intf.name)
+                   if intf.link:
+                       logging.info("Link : %s"%intf.link.name)
+                   else:
+                       logging.info("Link : None")
+            logger.info("Device and interfaces used for ospf feature")
+            logger.info(device_info)
+
+    @aetest.subsection
+    def connect_to_devices(self,testbed):
+        logger.info("Connecting to devices")
+        for uut in device_list:
+            uut.connect()
+            if uut.is_connected() == True:
+                logging.info("Successfully connected to device %s"%uut.name)
+                output = uut.execute('show version')
+                res = Ospf_common_functions.sh_version(output)
+                logging.info("Software version :%s"%res['version'])
+                logging.info("Image File :%s"%res['image'])
+            else:
+                logging.info("Device %s not connected"%uut.name)
+
+    @aetest.subsection
+    def configure_ip_address_to_interfaces(self,testbed):
+        logger.info("Assign ip address to interfaces")
+        pdb.set_trace()
+        logger.info(device_info.keys())
+        #for dev in device_info.keys():
+        Ospf_common_functions.configure_ip_address(uut1,device1['intf'],device1['ip_address'],subnet_mask)
+        Ospf_common_functions.configure_ip_address(uut1,device1['intf1'],device1['ip_address1'],subnet_mask)
+        Ospf_common_functions.configure_ip_address(uut2,device2['intf1'],device2['ip_address1'],subnet_mask)
+        Ospf_common_functions.configure_ip_address(uut2,device2['intf2'],device2['ip_address2'],subnet_mask)
+        Ospf_common_functions.configure_ip_address(uut3,device3['intf'],device3['ip_address'],subnet_mask)
+        Ospf_common_functions.configure_ip_address(uut3,device3['intf1'],device3['ip_address1'],subnet_mask)
+        Ospf_common_functions.configure_loopback_ip_address(uut3,device3['intf2'],device3['ip_address2'],subnet_mask)
+    
+    @aetest.subsection
+    def enabling_ospf_on_devices(self,testbed):
+        logger.info("Enabling Ospf on devices")
+        Ospf_common_functions.enabling_ospf(uut1)
+        Ospf_common_functions.enabling_ospf(uut2)
+        Ospf_common_functions.enabling_ospf(uut3)
+
+
+#@aetest.skip("testing first scenario")
+class Basic_Ospf_testcase(aetest.Testcase):
+    
+    @aetest.setup
+    def configure_ospf_routers(self,testbed):
+
+        logger.info("Configure ospf on routers")
+        Ospf_common_functions.configure_ospf_routers(uut1)
+        Ospf_common_functions.configure_ospf_routers(uut2)
+        Ospf_common_functions.configure_ospf_routers(uut3)
+
+        logger.info("Configure ospf in interface")
+        Ospf_common_functions.configure_ospf_interface(uut1,device1['intf'])
+        Ospf_common_functions.configure_ospf_interface(uut1,device1['intf1'])
+        Ospf_common_functions.configure_ospf_interface(uut2,device2['intf1'])
+        Ospf_common_functions.configure_ospf_interface(uut2,device2['intf2'])
+        Ospf_common_functions.configure_ospf_interface(uut3,device3['intf'])
+        Ospf_common_functions.configure_ospf_interface(uut3,device3['intf1'])
+
+        time.sleep(30)
+
+    @aetest.test
+    def check_ping_after_ospf_config(self,testbed):
+        logger.info("Check ospf configured or not ")
+        time.sleep(25)
+        ospf_config = uut2.execute("show ip ospf neighbor")
+        logger.info(ospf_config)
+        if "FULL" in ospf_config:
+            logger.info("OSPF configured on device")
+        else:
+            self.errored('OSPF is not configured on device')
+
+        logger.info("Ping the ip configured on device2: {}".format(uut3.name))
+        for i in range(5):
+            result = uut2.execute("ping {}".format(device3['ip_address']))
+        res_dict = Ospf_common_functions.validate_ping(result)
+        logger.info("++++++++++++++++++++++++++++")
+        logger.info(res_dict)
+        logger.info("++++++++++++++++++++++++++++")
+
+        if ((res_dict['sent_pkt'] == res_dict['receive_pkt']) and (res_dict['pkt_loss'] == '0.00%')):
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt'],res_dict['pkt_loss']))
+            self.passed("Success: After applied for Ospf ping got successful")
+        else:
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt']
+,res_dict['pkt_loss']))
+            self.failed("Failed: After applied for Ospf ping got failed")
+
+
+    @aetest.cleanup
+    def unconfigure_ospf_on_device(self,testbed):
+        logger.info("Unconfigure ospf in interface")
+        Ospf_common_functions.unconfigure_ospf_interface(uut1,device1['intf'])
+        Ospf_common_functions.unconfigure_ospf_interface(uut2,device2['intf1'])
+        Ospf_common_functions.unconfigure_ospf_interface(uut2,device2['intf2'])
+        Ospf_common_functions.unconfigure_ospf_interface(uut3,device3['intf'])
+
+        logger.info("Unconfigure ospf on routers")
+        Ospf_common_functions.unconfigure_ospf_routers(uut1)
+        Ospf_common_functions.unconfigure_ospf_routers(uut2)
+        Ospf_common_functions.unconfigure_ospf_routers(uut3)
+
+#@aetest.skip("testing second scenario")
+class Ospf_multiarea(aetest.Testcase):
+
+    @aetest.setup
+    def configure_ospf_on_device(self,testbed):
+
+        logger.info("Configure ospf on routers")
+        Ospf_common_functions.configure_ospf_routers(uut1)
+        Ospf_common_functions.configure_ospf_routers(uut2)
+        Ospf_common_functions.configure_ospf_routers(uut3)
+
+        logger.info("Configure ospf in interface")
+        Ospf_common_functions.configure_ospf_interface(uut1,device1['intf'])
+        Ospf_common_functions.configure_ospf_multiarea(uut1,device1['intf1'])
+        Ospf_common_functions.configure_ospf_interface(uut2,device2['intf1'])
+        Ospf_common_functions.configure_ospf_interface(uut2,device2['intf2'])
+        Ospf_common_functions.configure_ospf_interface(uut3,device3['intf'])
+        Ospf_common_functions.configure_ospf_multiarea(uut3,device3['intf1'])
+        Ospf_common_functions.configure_ospf_loopback(uut3,device3['intf2'])
+
+        time.sleep(30)
+
+    @aetest.test
+    def check_ping_after_ospf_multiarea(self,testbed):
+
+        logger.info("Check ospf multiarea configured or not ")
+        time.sleep(25)
+        ospf_config = uut1.execute("show ip ospf neighbor")
+        #time.sleep(10)
+        logger.info(ospf_config)
+        if "FULL" in ospf_config:
+            logger.info("Ospf multiarea is configured on device sucessfully")
+        else:
+            self.errored('Ospf multiarea is not configured on device')
+
+        logger.info("Checking ospf inter_area routes")
+        time.sleep(60)
+        ospf_config1 = uut1.execute("show ip ospf route")
+        logger.info(ospf_config1)
+        if "(inter)(R)" in ospf_config1:
+            logger.info("Ospf inter area routes are present on device sucessfully")
+        else:
+            self.errored('Ospf inter area routes is not present on device')
+        
+        logger.info("Check ospf multiarea configured or not ")
+        time.sleep(10)
+        ospf_config = uut3.execute("show ip ospf neighbor")
+        logger.info(ospf_config)
+        if "FULL" in ospf_config:
+            logger.info("Ospf multiarea is configured on device sucessfully")
+        else:
+            self.errored('Ospf multiarea is not configured on device') 
+
+        logger.info("Ping the ip configured on device2: {}".format(uut3.name))
+        for i in range(3):
+            result = uut1.execute("ping {}".format(device3['ip_address']))
+        res_dict = Ospf_common_functions.validate_ping(result)
+        logger.info("++++++++++++++++++++++++++++")
+        logger.info(res_dict)
+        logger.info("++++++++++++++++++++++++++++")
+
+        if ((res_dict['sent_pkt'] == res_dict['receive_pkt']) and (res_dict['pkt_loss'] == '0.00%')):
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt'],res_dict['pkt_loss']))
+            self.passed("Success: After applied ospf multiarea ping got successful")
+        else:
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt']
+,res_dict['pkt_loss']))
+            self.failed("Failed: After applied ospf multiarea ping got failed")
+
+    @aetest.cleanup
+    def unconfigure_ospf_multiarea_on_device(self,testbed):
+        logger.info("Unconfigure ospf multiarea in interface")
+        Ospf_common_functions.unconfigure_ospf_interface(uut1,device1['intf'])
+        Ospf_common_functions.unconfigure_ospf_multiarea(uut1,device1['intf1'])
+        Ospf_common_functions.unconfigure_ospf_interface(uut2,device2['intf1'])
+        Ospf_common_functions.unconfigure_ospf_interface(uut2,device2['intf2'])
+        Ospf_common_functions.unconfigure_ospf_interface(uut3,device3['intf'])
+        Ospf_common_functions.unconfigure_ospf_multiarea(uut3,device3['intf1'])
+        Ospf_common_functions.unconfigure_ospf_loopback(uut3,device3['intf2'])
+
+
+#@aetest.skip("testing third scenario")
+class Ospf_Authentication(aetest.Testcase):
+
+    @aetest.setup
+    def configure_ospf_authentication_on_routers(self,testbed):
+
+        logger.info("Configure ospf in interface")
+        Ospf_common_functions.configure_ospf_interface(uut1,device1['intf'])
+        Ospf_common_functions.configure_ospf_interface(uut1,device1['intf1'])
+        Ospf_common_functions.configure_ospf_interface(uut2,device2['intf1'])
+        Ospf_common_functions.configure_ospf_interface(uut2,device2['intf2'])
+        Ospf_common_functions.configure_ospf_interface(uut3,device3['intf'])
+        Ospf_common_functions.configure_ospf_interface(uut3,device3['intf1'])
+
+        time.sleep(10)
+
+        logger.info("Configure ospf authentication in interface")
+        Ospf_common_functions.configure_ospf_authentication(uut1,device1['intf'])
+        Ospf_common_functions.configure_ospf_authentication(uut1,device1['intf1']) 
+        Ospf_common_functions.configure_ospf_authentication(uut2,device2['intf1'])
+        Ospf_common_functions.configure_ospf_authentication(uut2,device2['intf2'])
+        Ospf_common_functions.configure_ospf_authentication(uut3,device3['intf'])
+        Ospf_common_functions.configure_ospf_authentication(uut3,device3['intf1']) 
+
+        time.sleep(30)
+
+    @aetest.test
+    def Verify_ping_after_ospf_authentication(self,testbed):
+
+        logger.info("Check ospf authentication configured or not ")
+        time.sleep(30)
+        ospf_config = uut1.execute("show ip ospf 2 interface eth1/5")
+        logger.info(ospf_config)
+        if "Message-digest authentication" in ospf_config:
+            logger.info("Ospf Authentication successful on device")
+        else:
+            self.errored('Ospf Authentication is unsucessful  on device')
+
+        logger.info("Check Ospf neighbor after configuring authentication")
+        time.sleep(15)
+        ospf_config = uut1.execute("show ip ospf neighbor")
+        logger.info(ospf_config)
+        if "FULL" in ospf_config:
+            logger.info("Ospf neighbor verification successful")
+        else:
+            self.errored('Ospf neighbor verification unsucessful')
+
+        logger.info("Check Ospf routes after configuring authentication")
+        time.sleep(15)
+        ospf_config = uut2.execute("show ip route")
+        logger.info(ospf_config)
+        if "110" in ospf_config:
+            logger.info("Ospf routes verification successful")
+        else:
+            self.errored('Ospf routes verification unsucessful') 
+
+        logger.info("Ping the ip configured on device3 and device1: {} {}".format(uut1.name,uut3.name))
+        for i in range(5):
+            result = uut1.execute("ping {}".format(device3['ip_address']))
+        res_dict = Ospf_common_functions.validate_ping(result)
+        logger.info("++++++++++++++++++++++++++++")
+        logger.info(res_dict)
+        logger.info("++++++++++++++++++++++++++++")
+
+
+        if ((res_dict['sent_pkt'] == res_dict['receive_pkt']) and (res_dict['pkt_loss'] == '0.00%')):
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt'],res_dict['pkt_loss']))
+            self.passed("Success: After ospf authentication ping got successful")
+        else:
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt']
+,res_dict['pkt_loss']))
+            self.failed("Failed: After ospf authentication ping got failed")        
+
+
+    @aetest.cleanup
+    def unconfigure_ospf_authentication(self,testbed):
+        logger.info("Unconfigure ospf authentication on interface")
+        Ospf_common_functions.unconfigure_ospf_authentication(uut1,device1['intf'])
+        Ospf_common_functions.unconfigure_ospf_authentication(uut1,device1['intf1']) 
+        Ospf_common_functions.unconfigure_ospf_authentication(uut2,device2['intf1']) 
+        Ospf_common_functions.unconfigure_ospf_authentication(uut2,device2['intf2'])
+        Ospf_common_functions.unconfigure_ospf_authentication(uut3,device3['intf'])
+        Ospf_common_functions.unconfigure_ospf_authentication(uut3,device3['intf1'])
+
+#@aetest.skip('testing fourth testcase')
+class Ospf_timers(aetest.Testcase):
+
+    @aetest.setup
+    def configuring_ospf_timers(self,testbed):
+
+        logger.info("Configure ospf timers on routers")
+        Ospf_common_functions.configure_ospf_timers(uut1,device1['intf1'])
+        Ospf_common_functions.configure_ospf_timers(uut3,device3['intf1'])
+        time.sleep(15)
+
+    @aetest.test
+    def check_ping_ospf_timers(self,testbed):
+
+        logger.info("Check Ospf Timers configured or not ")
+        time.sleep(30)
+        ospf_config = uut1.execute("show ip ospf interface ethernet 1/11")
+        logger.info(ospf_config)
+        if "Timer intervals: Hello 30, Dead 100" in ospf_config:
+            logger.info("Ospf timers configured on device successful")
+        else:
+            self.errored('Ospf timers are not configured on device unsuccessful')
+
+        logger.info("Check ospf neighbors after ospf timers configured ")
+        time.sleep(15)
+        ospf_config1 = uut3.execute("show ip ospf neighbor")
+        logger.info(ospf_config1)
+        if "FULL" in ospf_config1:
+            logger.info("Ospf neighborship successful after ospf timers configured on device")
+        else:
+            self.errored('Ospf neighborship failed after ospf timers configured on device')
+
+        logger.info("Verifying ospf routes after configuring timers")
+        time.sleep(10)
+        ospf_config1 = uut2.execute("show ip route")
+        logger.info(ospf_config1)
+        if "110" in ospf_config1:
+            logger.info("Ospf routes successful")
+        else:
+            self.errored('Ospf routes unsuccessful')
+
+
+        logger.info("Ping the ip configured on device2: {} to check in bound".format(uut3.name))
+        for i in range(3):
+            result1 = uut2.execute("ping {}".format(device3['ip_address']))
+        res_dict = Ospf_common_functions.validate_ping(result1)
+        logger.info("++++++++++++++++++++++++++++")
+        logger.info(res_dict)
+        logger.info("++++++++++++++++++++++++++++")
+
+        if ((res_dict['sent_pkt'] == res_dict['receive_pkt']) and (res_dict['pkt_loss'] == '0.00%')):
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt'],res_dict['pkt_loss']))
+            self.passed("Success: After applied for ospf ping got successful")
+        else:
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt']
+,res_dict['pkt_loss']))
+            self.failed("Failed: After applied for ospf ping got failed")
+
+    @aetest.cleanup
+    def unconfigure_ospf_timers_on_device(self,testbed):
+        logger.info("Unconfigure ospf timers on Routers")
+        Ospf_common_functions.unconfigure_ospf_timers(uut1,device1['intf1'])
+        Ospf_common_functions.unconfigure_ospf_timers(uut3,device3['intf1'])
+
+            
+
+#@aetest.skip("testing fifth scenario")
+class Ospf_stub_totally(aetest.Testcase):
+
+    @aetest.setup
+    def configure_ospf_stub_totally_on_device(self,testbed):
+
+        logger.info("Configure ospf areas on device1:{}".format(uut1.name))
+        Ospf_common_functions.configure_ospf_multiarea(uut1,device1['intf'])
+        Ospf_common_functions.configure_ospf_interface(uut1,device1['intf1'])
+        time.sleep(15)     
+  
+        logger.info("Configure ospf area on device2:{}".format(uut2.name))
+        Ospf_common_functions.configure_ospf_multiarea(uut2,device2['intf1'])
+        Ospf_common_functions.unconfigure_ospf_interface(uut2,device2['intf2']) 
+        time.sleep(15)
+
+        logger.info("Configure ospf area on device3:{}".format(uut3.name))
+        Ospf_common_functions.unconfigure_ospf_interface(uut3,device3['intf'])
+        Ospf_common_functions.configure_ospf_interface(uut3,device3['intf1'])
+        Ospf_common_functions.configure_ospf_loopback(uut3,device3['intf2']) 
+        time.sleep(15)
+
+    @aetest.test
+    def check_ospf_stub_totally_configured(self,testbed):
+        logger.info("Check ospf multiareas before stub configured ")
+        time.sleep(60)
+        ospf_config = uut2.execute("show ip ospf route")
+        logger.info(ospf_config)
+        
+        if "(inter)(R)" in ospf_config:
+            logger.info("ospf multiarea configured successful on device2:{} ".format(uut2.name))
+        else:
+            self.errored("ospf multiarea configured unsuccessful on device2:{} ".format(uut2.name))
+
+        logger.info("Check ospf neighbor after configuring multiarea on device2:{} ".format(uut2.name))
+        time.sleep(45)
+        ospf_config = uut2.execute("show ip ospf neighbor")
+        logger.info(ospf_config)
+        if "FULL" in ospf_config:
+            logger.info("Ospf neighbor verification successful on device2:{} ".format(uut2.name))
+        else:
+            self.errored("Ospf neighbor verification unsucessful on device2:{} ".format(uut2.name))
+
+        logger.info("Configuring Ospf Totally stub area on devices")
+        Ospf_common_functions.configure_ospf_stub_totally(uut1) 
+        Ospf_common_functions.configure_ospf_stub_totally(uut2)
+        time.sleep(30) 
+
+        logger.info("Check ospf multiarea after stub configured ")
+        time.sleep(60)
+        ospf_config = uut2.execute("show ip ospf route")
+        logger.info(ospf_config)
+
+        if "(inter)(R)" in ospf_config:
+            logger.info("ospf totally stub configured successful on device2:{} ".format(uut2.name))
+        else:
+            self.errored("ospf totally stub configured unsuccessful on device2:{} ".format(uut2.name))
+
+        logger.info("Check ospf neighbor after configuring totally stub area on device2:{} ".format(uut2.name))
+        time.sleep(30)
+        ospf_config = uut2.execute("show ip ospf neighbor")
+        logger.info(ospf_config)
+        if "FULL" in ospf_config:
+            logger.info("Ospf neighbor verification successful on device2:{} ".format(uut2.name))
+        else:
+            self.errored("Ospf neighbor verification unsucessful on device2:{} ".format(uut2.name))
+
+
+        logger.info("Ping the ip configured on device3 and device1: {} {}".format(uut1.name,uut3.name))
+        for i in range(5):
+            result = uut1.execute("ping {}".format(device3['ip_address2']))
+        res_dict = Ospf_common_functions.validate_ping(result)
+        logger.info("++++++++++++++++++++++++++++")
+        logger.info(res_dict)
+        logger.info("++++++++++++++++++++++++++++")
+
+        if ((res_dict['sent_pkt'] == res_dict['receive_pkt']) and (res_dict['pkt_loss'] == '0.00%')):
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt'],res_dict['pkt_loss']))
+            self.passed("Success: After ospf stub ping got successful")
+        else:
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt']
+,res_dict['pkt_loss']))
+            self.failed("Failed: After ospf stub ping got failed")
+
+
+    @aetest.cleanup
+    def unconfigure_ospf_totally_stub(self,testbed):
+        logger.info("Unconfigure ospf totally stub area on device1:{}".format(uut1.name))
+        Ospf_common_functions.unconfigure_ospf_stub_totally(uut1)
+
+        logger.info("Unconfigure ospf totally stub area on device2:{}".format(uut2.name))
+        Ospf_common_functions.unconfigure_ospf_stub_totally(uut2)  
+ 
+        logger.info("Unconfigure ospf areas on device1:{}".format(uut1.name))
+        Ospf_common_functions.unconfigure_ospf_multiarea(uut1,device1['intf'])
+        Ospf_common_functions.unconfigure_ospf_interface(uut1,device1['intf1'])
+
+        logger.info("Unconfigure ospf area on device2:{}".format(uut2.name))
+        Ospf_common_functions.unconfigure_ospf_multiarea(uut2,device2['intf1'])
+        #Ospf_common_functions.unconfigure_ospf_interface(uut2,device2['intf2'])
+
+        logger.info("Unconfigure ospf area on device3:{}".format(uut3.name))
+        #Ospf_common_functions.unconfigure_ospf_interface(uut3,device3['intf'])
+        Ospf_common_functions.unconfigure_ospf_interface(uut3,device3['intf1'])
+        Ospf_common_functions.unconfigure_ospf_loopback(uut3,device3['intf2'])
+
+
+#@aetest.skip("testing sixth scenario")
+class Ospf_Virtual_Links(aetest.Testcase):
+
+    @aetest.setup
+    def configure_ospf_vlinks_on_device(self,testbed):
+
+           #########Here areas got changed to different interfaces check thoroughly###########
+
+        logger.info("Configure ospf area on devices")
+        Ospf_common_functions.configure_ospf_multiarea(uut1,device1['intf'])      ###Keeping interface in area1###
+        Ospf_common_functions.configure_ospf_multiarea(uut2,device2['intf1'])     ###Keeping interface in area1###
+        Ospf_common_functions.configure_ospf_loopback(uut2,device2['intf2'])      ###Keeping interface in area2###
+        Ospf_common_functions.configure_ospf_loopback(uut3,device3['intf'])       ###Keeping interface in area1###
+        Ospf_common_functions.configure_ospf_interface(uut3,device3['intf2'])     ###Keeping loopback in area0### 
+        time.sleep(30)
+
+    @aetest.test
+    def verification_of_ospf_vlinks(self,testbed):
+        logger.info("Verifying ospf areas before configuring vlinks ")
+        time.sleep(60)
+        ospf_config = uut2.execute("show ip ospf route")
+        logger.info(ospf_config)
+        if "(inter)(R)" in ospf_config:
+            logger.info("Ospf inter area configured on device2:{} successful".format(uut2.name))
+        else:
+            self.errored('Ospf inter area is not configured on device2:{} failed'.format(uut2.name))
+
+
+        logger.info("Verifying ospf neighborship before configuring vlinks ")
+        time.sleep(30)
+        ospf_config = uut2.execute("show ip ospf neighbor")
+        logger.info(ospf_config)
+        if "FULL" in ospf_config:
+            logger.info("Ospf neighborship on device2:{} successful".format(uut2.name))
+        else:
+            self.errored('Ospf neighborship on device2:{} failed'.format(uut2.name))
+
+        logger.info("Configure ospf virtual links on devices")
+        Ospf_common_functions.configure_ospf_vlinks(uut2)
+        Ospf_common_functions.configure_ospf_vlinks1(uut3)
+
+
+        logger.info("Verifying ospf after configuring vlinks on device2:{} ".format(uut2.name))
+        time.sleep(60)
+        ospf_config = uut2.execute("show ip ospf virtual-links")
+        logger.info(ospf_config)
+        if "Virtual link VL1" in ospf_config:
+            logger.info("Ospf vlinks configured on device2:{} successful".format(uut2.name))
+        else:
+            self.errored('Ospf vlinks is not configured on device2:{} failed'.format(uut2.name))
+
+        logger.info("Verifying ospf after configuring vlinks on device3:{} ".format(uut3.name))
+        time.sleep(60)
+        ospf_config = uut3.execute("show ip ospf virtual-links")
+        logger.info(ospf_config)
+        if "Virtual link VL1" in ospf_config:
+            logger.info("Ospf vlinks configured on device3:{} successful".format(uut3.name))
+        else:
+            self.errored('Ospf vlinks is not configured on device3:{} failed'.format(uut3.name))
+
+        logger.info("Ping the ip configured on device3: {}".format(uut3.name))
+        for i in range(5):
+            result = uut1.execute("ping {}".format(device3['ip_address2']))
+        res_dict = Ospf_common_functions.validate_ping(result)
+        logger.info("++++++++++++++++++++++++++++")
+        logger.info(res_dict)
+        logger.info("++++++++++++++++++++++++++++")
+
+        if ((res_dict['sent_pkt'] == res_dict['receive_pkt']) and (res_dict['pkt_loss'] == '0.00%')):
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt'],res_dict['pkt_loss']))
+            self.passed("Success: After vlinks applied for ospf ping got successful")
+        else:
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt']
+,res_dict['pkt_loss']))
+            self.failed("Failed: After vlinks applied for ospf ping got failed")
+
+    @aetest.cleanup
+    def unconfigure_ospf_vlinks(self,testbed):
+        logger.info("Unconfigure ospf vlinks on devices")
+        Ospf_common_functions.unconfigure_ospf_vlinks(uut2)
+        Ospf_common_functions.unconfigure_ospf_vlinks1(uut3)
+
+        logger.info("Unconfigure ospf on interfaces")
+        Ospf_common_functions.unconfigure_ospf_multiarea(uut1,device1['intf'])
+        Ospf_common_functions.unconfigure_ospf_multiarea(uut2,device2['intf1'])
+        Ospf_common_functions.unconfigure_ospf_loopback(uut2,device2['intf2'])
+        Ospf_common_functions.unconfigure_ospf_loopback(uut3,device3['intf'])
+        Ospf_common_functions.unconfigure_ospf_interface(uut3,device3['intf2'])       
+
+
+#@aetest.skip('testing seventh testcase')
+class Ospf_Graceful_shutdown(aetest.Testcase):
+
+    @aetest.setup
+    def configuring_ospf_areas_on_devices(self,testbed):
+
+        logger.info("Configure ospf in interface")
+        Ospf_common_functions.configure_ospf_interface(uut1,device1['intf'])
+        Ospf_common_functions.configure_ospf_interface(uut1,device1['intf1'])
+        Ospf_common_functions.configure_ospf_interface(uut2,device2['intf1'])
+        Ospf_common_functions.configure_ospf_interface(uut2,device2['intf2'])
+        Ospf_common_functions.configure_ospf_interface(uut3,device3['intf'])
+        Ospf_common_functions.configure_ospf_interface(uut3,device3['intf1'])
+        time.sleep(60)
+
+    @aetest.test
+    def configure_verify_ping_ospf_graceful_shutdown(self,testbed):
+
+        logger.info("Check ospf before graceful shutdown ")
+        ospf_config = uut1.execute("show ip ospf neighbor")
+        time.sleep(60)
+        logger.info(ospf_config)
+        if "FULL" in ospf_config:
+            logger.info("ospf neighborship successful on device")
+        else:
+            self.errored('ospf neighborship failed on device')
+
+        logger.info("Check ospf routes before graceful shutdown")
+        time.sleep(30)
+        ospf_config1 = uut3.execute("show ip route")
+        logger.info(ospf_config1)
+        if "110" in ospf_config1:
+            logger.info("Ospf routes found on device")
+        else:
+            self.errored('Ospf routes not found on device')
+
+        logger.info("Configure ospf graceful shutdown on device:{} ".format(uut1.name))
+        Ospf_common_functions.configure_ospf_graceful_shutdown(uut1)
+        time.sleep(60)
+
+        logger.info("Verifying ospf neighborship after doing graceful shutdown")
+        time.sleep(60)
+        ospf_config1 = uut1.execute("show ip ospf neighbors")
+        logger.info(ospf_config1)
+        if "" in ospf_config1:
+            logger.info("Ospf graceful shutdown successful")
+        else:
+            self.errored('Ospf graceful shutdown failed')
+
+        logger.info("Verifying ospf neighborship after doing graceful shutdown")
+        time.sleep(30)
+        ospf_config1 = uut2.execute("show ip ospf neighbors")
+        logger.info(ospf_config1)
+        if "10.10.10.1" not in ospf_config1:
+            logger.info("Ospf graceful shutdown successful")
+        else:
+            self.errored('Ospf graceful shutdown failed')
+
+        logger.info("Verifying ospf interface after doing graceful shutdown")
+        ospf_config1 = uut1.execute("show ip ospf interface ethernet 1/5")
+        logger.info(ospf_config1)
+        if "Hello 10" in ospf_config1:
+            logger.info("After Ospf graceful shutdown interface was up")
+        else:
+            self.errored('Ospf graceful shutdown failed')
+
+        logger.info("Ping the ip configured on device2: {} to check in bound".format(uut3.name))
+        for i in range(3):
+            result1 = uut2.execute("ping {}".format(device3['ip_address']))
+        res_dict = Ospf_common_functions.validate_ping(result1)
+        logger.info("++++++++++++++++++++++++++++")
+        logger.info(res_dict)
+        logger.info("++++++++++++++++++++++++++++")
+
+        if ((res_dict['sent_pkt'] == res_dict['receive_pkt']) and (res_dict['pkt_loss'] == '0.00%')):
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt'],res_dict['pkt_loss']))
+            self.passed("Success: After applied for Ospf ping got successful")
+        else:
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt']
+,res_dict['pkt_loss']))
+            self.failed("Failed: After applied for Ospf ping got failed")
+
+    @aetest.cleanup
+    def unconfigure_ospf_graceful_shutdown(self,testbed):
+        logger.info("Unconfigure Ospf graceful shutdown on Routers")
+        Ospf_common_functions.unconfigure_ospf_graceful_shutdown(uut1)
+
+
+#@aetest.skip('testing eighth testcase')
+class Ospf_Passive_interface(aetest.Testcase):
+
+    @aetest.setup
+    def configuring_ospf_passive_int_on_devices(self,testbed):
+
+        logger.info("Configure ospf passive interface on device")
+        Ospf_common_functions.configure_ospf_passive_interface(uut3,device3['intf1'])
+        time.sleep(60)
+
+    @aetest.test
+    def configure_verify_ping_ospf_passive_interface(self,testbed):
+
+        logger.info("Check ospf neighbor after passive interface ")
+        ospf_config = uut1.execute("show ip ospf neighbor")
+        time.sleep(60)
+        logger.info(ospf_config)
+        if "4.4.4.4" not in ospf_config:
+            logger.info("ospf neighborship for passive successful on device")
+        else:
+            self.errored('ospf neighborship for passive failed on device')
+
+        logger.info("Check ospf routes after passive interface")
+        time.sleep(30)
+        ospf_config1 = uut1.execute("show ip route")
+        logger.info(ospf_config1)
+        if "110" in ospf_config1:
+            logger.info("Ospf routes found on device")
+        else:
+            self.errored('Ospf routes not found on device')
+
+        logger.info("Check ospf passive interface")
+        time.sleep(30)
+        ospf_config1 = uut3.execute("show ip ospf interface ethernet 1/11")
+        logger.info(ospf_config1)
+        if "Passive interface" in ospf_config1:
+            logger.info("Ospf passive interface found on device")
+        else:
+            self.errored('Ospf passive interface not found on device')
+
+        logger.info("Ping the ip configured on device2: {} to check in bound".format(uut3.name))
+        for i in range(3):
+            result1 = uut2.execute("ping {}".format(device3['ip_address']))
+        res_dict = Ospf_common_functions.validate_ping(result1)
+        logger.info("++++++++++++++++++++++++++++")
+        logger.info(res_dict)
+        logger.info("++++++++++++++++++++++++++++")
+
+        if ((res_dict['sent_pkt'] == res_dict['receive_pkt']) and (res_dict['pkt_loss'] == '0.00%')):
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt'],res_dict['pkt_loss']))
+            self.passed("Success: After applied for Ospf ping got successful")
+        else:
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt']
+,res_dict['pkt_loss']))
+            self.failed("Failed: After applied for Ospf ping got failed")
+
+    @aetest.cleanup
+    def unconfigure_ospf_passive_interface(self,testbed):
+        logger.info("Unconfigure Ospf passive interface on Routers")
+        Ospf_common_functions.unconfigure_ospf_passive_interface(uut3,device3['intf1'])
+        time.sleep(30)
+
+
+#@aetest.skip('testing nineth testcase')
+class Ospf_DR_BDR(aetest.Testcase):
+
+    @aetest.setup
+    def configuring_ospf_DR_BDR(self,testbed):
+
+        logger.info("Configure ospf priority on routers")
+        Ospf_common_functions.configure_ospf_DR_BDR(uut3,device3['intf1'])
+        Ospf_common_functions.configure_ospf_clear_process(uut1)
+        Ospf_common_functions.configure_ospf_clear_process(uut2)
+        time.sleep(60)
+
+ 
+    @aetest.test
+    def check_ping_after_ospf_clear_process(self,testbed):
+
+        logger.info("Check ospf neighbors after priority change ")
+        time.sleep(30)
+        ospf_config = uut1.execute("show ip ospf neighbors")
+        logger.info(ospf_config)
+        if "FULL/DR" in ospf_config:
+            logger.info("Ospf neighbors successful configured on device")
+        else:
+            self.errored('Ospf neighbors are not configured on device')
+
+        logger.info("Check ospf routes ")
+        time.sleep(30)
+        ospf_config1 = uut1.execute("show ip route")
+        logger.info(ospf_config1)
+
+        if "110" in ospf_config1:
+            logger.info("Ospf routes are present")
+        else:
+            self.errored('Ospf routes are not present')
+
+
+        logger.info("Ping the ip configured on device2: {} to check in bound".format(uut3.name))
+        for i in range(3):
+            result1 = uut2.execute("ping {}".format(device3['ip_address']))
+        res_dict = Ospf_common_functions.validate_ping(result1)
+        logger.info("++++++++++++++++++++++++++++")
+        logger.info(res_dict)
+        logger.info("++++++++++++++++++++++++++++")
+
+
+        if ((res_dict['sent_pkt'] == res_dict['receive_pkt']) and (res_dict['pkt_loss'] == '0.00%')):
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt'],res_dict['pkt_loss']))
+            self.passed("Success: After applied for Ospf ping got successful")
+        else:
+            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt']
+,res_dict['pkt_loss']))
+            self.failed("Failed: After applied for Ospf ping got failed")
+
+    @aetest.cleanup
+    def unconfigure_ospf_DR_BDR_on_device(self,testbed):
+        logger.info("Unconfigure ospf priority on Routers")
+        Ospf_common_functions.unconfigure_ospf_DR_BDR(uut3,device3['intf1'])
+        Ospf_common_functions.configure_ospf_clear_process(uut1)
+        Ospf_common_functions.configure_ospf_clear_process(uut2)
+
+
+      
+class CommonCleanup(aetest.CommonCleanup):
+
+    @aetest.subsection
+    def unconfigure_ospf_on_devices(self,testbed):
+        logger.info("Unconfigure ospf on interfaces")
+        Ospf_common_functions.disabling_ospf(uut1)
+        Ospf_common_functions.disabling_ospf(uut2)
+        Ospf_common_functions.disabling_ospf(uut3)
+
+    @aetest.subsection
+    def unconfigure_ipaddress_device(self,testbed):
+        logging.info("Unconfig ip address on interfaces of all devices")
+        Ospf_common_functions.unconfigure_ip_address(uut1,device1['intf'])
+        Ospf_common_functions.unconfigure_ip_address(uut1,device1['intf1'])
+        Ospf_common_functions.unconfigure_ip_address(uut2,device2['intf1'])
+        Ospf_common_functions.unconfigure_ip_address(uut2,device2['intf2'])
+        Ospf_common_functions.unconfigure_ip_address(uut3,device3['intf'])
+        Ospf_common_functions.unconfigure_ip_address(uut3,device3['intf1'])
+ 
+    @aetest.subsection
+    def disconnect(self,testbed):
+        logger.info("Disconnect the devices")
+        for uut in device_list:
+            uut.disconnect()
+
+ 
+if __name__ == '__main__':
+    import argparse
+    from pyats.topology import loader
+ 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--testbed', dest = 'testbed',
+                        type = loader.load)
+ 
+    args, unknown = parser.parse_known_args()
+ 
+    aetest.main(**vars(args))
