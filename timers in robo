@@ -1,0 +1,38 @@
+*** Settings ***
+Library    SSHLibrary
+
+*** Variables ***
+${username}           admin
+${password}           tcs123
+@{router_ips}	10.133.35.139	10.133.35.143
+${intf}		ethernet1/7
+ 
+*** Test Cases ***
+Configure OSPF on Multiple Router
+    
+    FOR	${router_ip}	IN	@{router_ips}
+        Connect To Router     ${router_ip}
+        Configure OSPF Timers	${intf}
+        Validate OSPF Configuration	${intf}
+    END
+     
+*** Keywords ***
+Connect To Router
+    [Arguments]	${router_ip}
+    Open Connection	${router_ip}
+    Login	${username}	${password}
+
+Configure OSPF Timers
+    [Arguments]    ${intf}
+    Write       configure terminal
+    Write       int ${intf}
+    Write       ip ospf hello-interval 10
+    Write       ip ospf dead-interval 90
+    Write       end 
+
+Validate OSPF Configuration
+    [Arguments]	${intf}
+    ${ospf_config} =    Execute Command    show ip ospf interface ${intf}
+    Log To Console   ${ospf_config}
+    Should Contain		${ospf_config}		Timer intervals: Hello 10, Dead 90
+    Close All Connections
