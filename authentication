@@ -1,0 +1,208 @@
+func OspfAuthentication(deviceIP string,interf string) error {
+    serverAddress := deviceIP
+    serverUsername := "admin"
+    serverPassword := "tcs123"
+
+    config := &ssh.ClientConfig{
+        User: serverUsername,
+        Auth: []ssh.AuthMethod{
+            ssh.Password(serverPassword),
+        },
+        HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+    }
+
+    client, err := ssh.Dial("tcp", serverAddress+":22", config)
+    if err != nil {
+        panic(err)
+    }
+    defer client.Close()
+
+    session, err := client.NewSession()
+    if err !=nil {
+        panic(err)
+    }
+    defer session.Close()
+
+    modes := ssh.TerminalModes{
+            ssh.ECHO: 0,
+            ssh.TTY_OP_ISPEED: 14400,
+            ssh.TTY_OP_OSPEED: 14400,
+    }
+
+    if err := session.RequestPty("vt100", 0, 0, modes); err != nil {
+        panic(err)
+    }
+
+    sshShell, err := session.StdinPipe()
+    if err != nil {
+        panic(err)
+    }
+    if err :=session.Shell(); err !=nil {
+        panic(err)
+    }
+    //'int {intf}\n ip router ospf 2 area 0\n end'''
+    //router ospf 2\n no area 0.0.0.0 authentication message-digest\n exit\n int {intf}\n 
+    //no ip ospf authentication-key 0 cisco\n no ip ospf message-digest-key 21 md5 0 cisco\n end
+    commands := []string{
+            "conf t\n",
+            fmt.Sprintf("router ospf 2\n"),
+            fmt.Sprintf("area 0.0.0.0 authentication message-digest\n"),
+            fmt.Sprintf("exit\n"),
+            fmt.Sprintf("interface %s\n",interf),
+            fmt.Sprintf("ip ospf authentication-key 0 cisco\n"),
+            fmt.Sprintf("ip ospf message-digest-key 21 md5 0 cisco\n"),
+            "end\n",
+    }
+
+    for _,cmd := range commands {
+        sshShell.Write([]byte(cmd))
+        time.Sleep(1 * time.Second)
+    }
+   // fmt.Printf("RIP enabled on device %s %s\n", serverAddress,interf)
+
+    return nil
+}
+func OspfInterface(deviceIP string,interf string) error {
+    serverAddress := deviceIP
+    serverUsername := "admin"
+    serverPassword := "tcs123"
+
+    config := &ssh.ClientConfig{
+        User: serverUsername,
+        Auth: []ssh.AuthMethod{
+            ssh.Password(serverPassword),
+        },
+        HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+    }
+
+    client, err := ssh.Dial("tcp", serverAddress+":22", config)
+    if err != nil {
+        panic(err)
+    }
+    defer client.Close()
+
+    session, err := client.NewSession()
+    if err !=nil {
+        panic(err)
+    }
+    defer session.Close()
+
+    modes := ssh.TerminalModes{
+            ssh.ECHO: 0,
+            ssh.TTY_OP_ISPEED: 14400,
+            ssh.TTY_OP_OSPEED: 14400,
+    }
+
+    if err := session.RequestPty("vt100", 0, 0, modes); err != nil {
+        panic(err)
+    }
+
+    sshShell, err := session.StdinPipe()
+    if err != nil {
+        panic(err)
+    }
+    if err :=session.Shell(); err !=nil {
+        panic(err)
+    }
+    //'int {intf}\n ip router ospf 2 area 0\n end'''
+    commands := []string{
+            "conf t\n",
+	    fmt.Sprintf("no feature ospf\n"),
+	    fmt.Sprintf("feature ospf\n"),
+	    fmt.Sprintf("router ospf 2\n"),
+            fmt.Sprintf("interface %s\n",interf),
+            fmt.Sprintf("ip router ospf 2 area 0\n"),
+            "end\n",
+    }
+
+    for _,cmd := range commands {
+        sshShell.Write([]byte(cmd))
+        time.Sleep(1 * time.Second)
+    }
+   // fmt.Printf("RIP enabled on device %s %s\n", serverAddress,interf)
+
+    return nil
+}
+func TestOspfAuthentication(t *testing.T){
+    err := OspfInterface("10.133.35.148","Ethernet1/11")
+    if err != nil {
+        t.Errorf("Failed to enable OSPF on device: %v", err)
+    }
+    err1 := OspfInterface("10.133.35.134","Ethernet1/11")
+    if err1 != nil {
+        t.Errorf("Failed to enable OSPF on device: %v", err1)
+    }
+    err2 := OspfInterface("10.133.35.148","Ethernet1/1")
+    if err2 != nil {
+        t.Errorf("Failed to enable OSPF on device: %v", err2)
+    }
+/*    err3 := OspfInterface("10.133.35.139","Ethernet1/1")
+    if err3 != nil {
+        t.Errorf("Failed to enable OSPF on device: %v", err3)
+    }
+    err4 := OspfInterface("10.133.35.139","Ethernet1/7")
+    if err4 != nil {
+        t.Errorf("Failed to enable OSPF on device: %v", err4)
+    }*/
+    err5 := OspfInterface("10.133.35.134","Ethernet1/7")
+    if err5 != nil {
+        t.Errorf("Failed to enable OSPF on device: %v", err5)
+    }
+    err6 := OspfAuthentication("10.133.35.134","Ethernet1/11")
+    if err6 != nil {
+        t.Errorf("Failed to enable OSPF on device: %v", err6)
+    }
+    err7 := OspfAuthentication("10.133.35.148","Ethernet1/11")
+    if err7 != nil {
+        t.Errorf("Failed to enable OSPF on device: %v", err7)
+    }/*
+    err8 := OspfAuthentication("10.133.35.139","Ethernet1/1")
+    if err8 != nil {
+        t.Errorf("Failed to enable OSPF on device: %v", err8)
+    }*/
+    err9 := OspfAuthentication("10.133.35.148","Ethernet1/1")
+    if err9 != nil {
+        t.Errorf("Failed to enable OSPF on device: %v", err9)
+    }/*
+    err10 := OspfAuthentication("10.133.35.139","Ethernet1/7")
+    if err10 != nil {
+        t.Errorf("Failed to enable OSPF on device: %v", err10)
+    }*/
+    err11 := OspfAuthentication("10.133.35.134","Ethernet1/7")
+    if err11 != nil {
+        t.Errorf("Failed to enable OSPF on device: %v", err11)
+    }
+    time.Sleep(20 * time.Second)
+    serverUsername := "admin"
+    serverPassword := "tcs123"
+    serverAddress := "10.133.35.148"
+    OutputCommand := "show ip ospf 2 interface eth1/11"
+
+    router1Config := &ssh.ClientConfig{
+        User: serverUsername,
+        Auth: []ssh.AuthMethod{
+            ssh.Password(serverPassword),
+        },
+        HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+    }
+    router1Client, err := ssh.Dial("tcp", serverAddress+":22", router1Config)
+    if err !=nil {
+        log.Fatalf("Failed to connect to Router 1: %v", err)
+    }
+    defer router1Client.Close()
+
+    router1Session, err := router1Client.NewSession()
+    if err != nil {
+        log.Fatalf("Failed to create session on Router 1: %v", err)
+
+    }
+    defer router1Session.Close()
+    router1Output, err := router1Session.CombinedOutput(OutputCommand)
+    if err != nil {
+        fmt.Printf("Failed to execute ping command on Router 1: %v", err)
+    }
+    time.Sleep(10 * time.Second)
+    fmt.Printf("Router 1 Ping Output:\n%s\n", router1Output)
+}
+
+
