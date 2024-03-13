@@ -1,8 +1,8 @@
-func Ospf_Graceful_shutdow(deviceIP string,interf string,area string) error {
+func OspfMultiArea(deviceIP string,interf string,area string) error {
     serverAddress := deviceIP
     serverUsername := "admin"
     serverPassword := "tcs123"
-    //areaa := area
+    areaa := area
 
     config := &ssh.ClientConfig{
         User: serverUsername,
@@ -48,9 +48,8 @@ func Ospf_Graceful_shutdow(deviceIP string,interf string,area string) error {
             fmt.Sprintf("no feature ospf\n"),
             fmt.Sprintf("feature ospf\n"),
             fmt.Sprintf("router ospf 2\n"),
-            //fmt.Sprintf("interface %s\n",interf),
-            //fmt.Sprintf("router ospf 2\n "),
-            fmt.Sprintf("shutdown\n "),
+            fmt.Sprintf("interface %s\n",interf),
+            fmt.Sprintf("ip router ospf 2 %s\n",areaa),
             "end\n",
     }
 
@@ -62,7 +61,7 @@ func Ospf_Graceful_shutdow(deviceIP string,interf string,area string) error {
 
     return nil
 }
-func CleaningOspfTimers(deviceIP string, interf string) error {
+func CleaningOspfMultiArea(deviceIP string, interf string) error {
     serverAddress := deviceIP
     serverUsername := "admin"
     serverPassword := "tcs123"
@@ -106,9 +105,9 @@ func CleaningOspfTimers(deviceIP string, interf string) error {
     //int {intf}\n no ip router ospf 2 area 1\n end'
     commands := []string{
             "conf t\n",
-            fmt.Sprintf("no feature ospf\n"),
-            fmt.Sprintf("router ospf 2\n"),
-            fmt.Sprintf("no shutdown\n  "),
+            fmt.Sprintf("int %s\n",interf),
+            fmt.Sprintf("no ip router ospf 2 area 1\n"),
+            fmt.Sprintf("no router ospf\n"),
             "end\n",
     }
     for _,cmd := range commands {
@@ -117,24 +116,24 @@ func CleaningOspfTimers(deviceIP string, interf string) error {
     }
     return nil
 }
-func TestOspf_stub_Totally(t *testing.T){
-    err := Ospfmultiarea("10.133.35.148","Ethernet1/5","area1")
+func TestOspfMultiArea(t *testing.T){
+    err := OspfMultiArea("10.133.35.148","Ethernet1/11","area 0")
     if err != nil {
         t.Errorf("Failed to enable OSPF on device: %v", err)
     }
-    err1 := Ospfmultiarea("10.133.35.148","Ethernet1/11","area1")
+     err1 := OspfMultiArea("10.133.35.148","Ethernet1/1","area 1")
     if err1 != nil {
         t.Errorf("Failed to enable OSPF on device: %v", err1)
     }
-    /*err2 := OspfMultiArea("10.133.35.134","Ethernet1/11","area 0")
+    err2 := OspfMultiArea("10.133.35.143","Ethernet1/11","area 0")
     if err2 != nil {
         t.Errorf("Failed to enable OSPF on device: %v", err2)
-    }*/
-   /*err3 := OspfMultiArea("10.133.35.150","Ethernet1/1","area 1")
+    }
+   err3 := OspfMultiArea("10.133.35.150","Ethernet1/1","area 1")
     if err3 != nil {
         t.Errorf("Failed to enable OSPF on device: %v", err3)
     }
-
+/*
     err2 := Ospfexec("10.133.35.143","Ethernet1/7")
     if err2 != nil {
         t.Errorf("Failed to enable OSPF on device: %v", err2)
@@ -153,12 +152,12 @@ func TestOspf_stub_Totally(t *testing.T){
         t.Errorf("Failed to enable OSPF on device: %v", err5)
     }
   */
-    time.Sleep(10 * time.Second)
+    time.Sleep(20 * time.Second)
     serverUsername := "admin"
     serverPassword := "tcs123"
     serverAddress := "10.133.35.148"
-    OutputCommand := "show ip ospf neighbor"
-   
+    OutputCommand := "show ip ospf route"
+   // OutputCommand2 := "show ip ospf route"
     router1Config := &ssh.ClientConfig{
         User: serverUsername,
         Auth: []ssh.AuthMethod{
@@ -183,103 +182,46 @@ func TestOspf_stub_Totally(t *testing.T){
     if err != nil {
         fmt.Printf("Failed to execute ping command on Router 1: %v", err)
     }
-    time.Sleep(5 * time.Second)
+/*    router2Output, err1 := router1Session.CombinedOutput(OutputCommand2)
+    if err != nil {
+        fmt.Printf("Failed to execute ping command on Router 1: %v", err)
+    }*/
+
+/*    fmt.Printf("Router 1 Ping Output:\n%s\n", router1Output)
+    time.Sleep(25 * time.Second)
+    fmt.Printf("Router 1 Ping Output:\n%s\n", router1Output)
+    time.Sleep(25 * time.Second)
+    fmt.Printf("Router 1 Ping Output:\n%s\n", router1Output)*/
+    time.Sleep(25 * time.Second)
+    fmt.Printf("Router 1 Ping Output:\n%s\n", router1Output)
+//    fmt.Printf("Router 1 Ping Output:\n%s\n", router2Output)
+    OutputCommand1 := "show ip ospf neighbors"
+   // OutputCommand2 := "show ip ospf route"
+    router1Config1 := &ssh.ClientConfig{
+        User: serverUsername,
+        Auth: []ssh.AuthMethod{
+            ssh.Password(serverPassword),
+        },
+        HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+    }
+    router1Client1, err1 := ssh.Dial("tcp", serverAddress+":22", router1Config1)
+    if err1 !=nil {
+        log.Fatalf("Failed to connect to Router 1: %v", err1)
+    }
+    defer router1Client1.Close()
+
+    router1Session1, err1 := router1Client1.NewSession()
+    if err1 != nil {
+        log.Fatalf("Failed to create session on Router 1: %v", err1)
+
+    }
+    defer router1Session1.Close()
+
+    router1Output1, err1 := router1Session1.CombinedOutput(OutputCommand1)
+    if err1 != nil {
+        fmt.Printf("Failed to execute ping command on Router 1: %v", err1)
+    }
+    time.Sleep(25 * time.Second)
     fmt.Printf("Router 1 Ping Output:\n%s\n", router1Output1)
 }
 
-
-
-
-
-
-
-
-
-
-
-
-class Ospf_Graceful_shutdown(aetest.Testcase):
-
-    @aetest.setup
-    def configuring_ospf_areas_on_devices(self,testbed):
-
-        logger.info("Configure ospf in interface")
-        Ospf_common_functions.configure_ospf_interface(uut1,device1['intf'])
-        Ospf_common_functions.configure_ospf_interface(uut1,device1['intf1'])
-        Ospf_common_functions.configure_ospf_interface(uut2,device2['intf1'])
-        Ospf_common_functions.configure_ospf_interface(uut2,device2['intf2'])
-        Ospf_common_functions.configure_ospf_interface(uut3,device3['intf'])
-        Ospf_common_functions.configure_ospf_interface(uut3,device3['intf1'])
-        time.sleep(60)
-
-    @aetest.test
-    def configure_verify_ping_ospf_graceful_shutdown(self,testbed):
-
-        logger.info("Check ospf before graceful shutdown ")
-        ospf_config = uut1.execute("show ip ospf neighbor")
-        time.sleep(60)
-        logger.info(ospf_config)
-        if "FULL" in ospf_config:
-            logger.info("ospf neighborship successful on device")
-        else:
-            self.errored('ospf neighborship failed on device')
-
-        logger.info("Check ospf routes before graceful shutdown")
-        time.sleep(30)
-        ospf_config1 = uut3.execute("show ip route")
-        logger.info(ospf_config1)
-        if "110" in ospf_config1:
-            logger.info("Ospf routes found on device")
-        else:
-            self.errored('Ospf routes not found on device')
-
-        logger.info("Configure ospf graceful shutdown on device:{} ".format(uut1.name))
-        Ospf_common_functions.configure_ospf_graceful_shutdown(uut1)
-        time.sleep(60)
-
-        logger.info("Verifying ospf neighborship after doing graceful shutdown")
-        time.sleep(60)
-        ospf_config1 = uut1.execute("show ip ospf neighbors")
-        logger.info(ospf_config1)
-        if "" in ospf_config1:
-            logger.info("Ospf graceful shutdown successful")
-        else:
-            self.errored('Ospf graceful shutdown failed')
-
-        logger.info("Verifying ospf neighborship after doing graceful shutdown")
-        time.sleep(30)
-        ospf_config1 = uut2.execute("show ip ospf neighbors")
-        logger.info(ospf_config1)
-        if "10.10.10.1" not in ospf_config1:
-            logger.info("Ospf graceful shutdown successful")
-        else:
-            self.errored('Ospf graceful shutdown failed')
-
-        logger.info("Verifying ospf interface after doing graceful shutdown")
-        ospf_config1 = uut1.execute("show ip ospf interface ethernet 1/5")
-        logger.info(ospf_config1)
-        if "Hello 10" in ospf_config1:
-            logger.info("After Ospf graceful shutdown interface was up")
-        else:
-            self.errored('Ospf graceful shutdown failed')
-
-        logger.info("Ping the ip configured on device2: {} to check in bound".format(uut3.name))
-        for i in range(3):
-            result1 = uut2.execute("ping {}".format(device3['ip_address']))
-        res_dict = Ospf_common_functions.validate_ping(result1)
-        logger.info("++++++++++++++++++++++++++++")
-        logger.info(res_dict)
-        logger.info("++++++++++++++++++++++++++++")
-
-        if ((res_dict['sent_pkt'] == res_dict['receive_pkt']) and (res_dict['pkt_loss'] == '0.00%')):
-            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt'],res_dict['pkt_loss']))
-            self.passed("Success: After applied for Ospf ping got successful")
-        else:
-            logger.info("Sent : {} packets and received: {} packets and packet loss: {}".format(res_dict['sent_pkt'],res_dict['receive_pkt']
-,res_dict['pkt_loss']))
-            self.failed("Failed: After applied for Ospf ping got failed")
-
-    @aetest.cleanup
-    def unconfigure_ospf_graceful_shutdown(self,testbed):
-        logger.info("Unconfigure Ospf graceful shutdown on Routers")
-        Ospf_common_functions.unconfigure_ospf_graceful_shutdown(uut1)
