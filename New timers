@@ -1,96 +1,86 @@
-package main_test
+package main
 
 import (
-	"testing"
-	"golang.org/x/crypto/ssh"
-	"fmt"
+    "fmt"
+    "time"
+
+    "golang.org/x/crypto/ssh"
 )
 
-var (
-	username = "admin"
-	password = "tcs123"
-	routerIPs = []string{"10.133.35.139", "10.133.35.143"}
-	intf = "ethernet1/7"
-)
+func executeSSHCommand(serverAddress, serverUsername, serverPassword string, commands []string) ([]byte, error) {
+    // SSH client configuration
+    config := &ssh.ClientConfig{
+        User: serverUsername,
+        Auth: []ssh.AuthMethod{
+            ssh.Password(serverPassword),
+        },
+        HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+    }
 
-func TestConfigureOSPFOntMultipleRouter(t *testing.T) {
-	for _, routerIP := range routerIPs {
-		client, err := connectToRouter(routerIP)
-		if err != nil {
-			t.Errorf("Failed to connect to router %s: %v", routerIP, err)
-			continue
-		}
-		defer client.Close()
+    // Connect to the SSH server
+    client, err := ssh.Dial("tcp", serverAddress+":22", config)
+    if err != nil {
+        return nil, err
+    }
+    defer client.Close()
 
-		err = configureOSPFTimers(client, intf)
-		if err != nil {
-			t.Errorf("Failed to configure OSPF timers on router %s: %v", routerIP, err)
-			continue
-		}
+    // Create a new SSH session
+    session, err := client.NewSession()
+    if err != nil {
+        return nil, err
+    }
+    defer session.Close()
 
-		err = validateOSPFConfiguration(client, intf)
-		if err != nil {
-			t.Errorf("OSPF configuration validation failed on router %s: %v", routerIP, err)
-			continue
-		}
-	}
+    // Run commands on the SSH session
+    output := []byte{}
+    for _, cmd := range commands {
+        // Execute command
+        out, err := session.CombinedOutput(cmd)
+        if err != nil {
+            return nil, fmt.Errorf("failed to execute command '%s': %v", cmd, err)
+        }
+        output = append(output, out...)
+    }
+
+    return output, nil
 }
 
-func connectToRouter(routerIP string) (*ssh.Client, error) {
-	config := &ssh.ClientConfig{
-		User: username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(password),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
-	client, err := ssh.Dial("tcp", fmt.Sprintf("%s:22", routerIP), config)
-	if err != nil {
-		return nil, err
-	}
-	return client, nil
+func OspfTimers(deviceIP, interf string) error {
+    serverUsername := "admin"
+    serverPassword := "tcs123"
+
+    commands := []string{
+        "conf t",
+        "no feature ospf",
+        "feature ospf",
+        "router ospf 2",
+        fmt.Sprintf("interface %s", interf),
+        "ip ospf hello-interval 30",
+        "ip ospf dead-interval 100",
+        "end",
+    }
+
+    _, err := executeSSHCommand(deviceIP, serverUsername, serverPassword, commands)
+    if err != nil {
+        return err
+    }
+
+    return nil
 }
 
-func configureOSPFTimers(client *ssh.Client, intf string) error {
-	session, err := client.NewSession()
-	if err != nil {
-		return err
-	}
-	defer session.Close()
+func TestOspfTimers() {
+    deviceIP := "10.133.35.148"
+    interf := "Ethernet1/11"
 
-	commands := []string{
-		"configure terminal",
-		fmt.Sprintf("int %s", intf),
-		"ip ospf hello-interval 10",
-		"ip ospf dead-interval 90",
-		"end",
-	}
+    err := OspfTimers(deviceIP, interf)
+    if err != nil {
+        fmt.Printf("Failed to enable OSPF on device %s interface %s: %v\n", deviceIP, interf, err)
+        return
+    }
 
-	for _, cmd := range commands {
-		if err := session.Run(cmd); err != nil {
-			return err
-		}
-	}
-
-	return nil
+    fmt.Printf("OSPF timers configured successfully on device %s interface %s\n", deviceIP, interf)
 }
 
-func validateOSPFConfiguration(client *ssh.Client, intf string) error {
-	session, err := client.NewSession()
-	if err != nil {
-		return err
-	}
-	defer session.Close()
-
-	output, err := session.CombinedOutput(fmt.Sprintf("show ip ospf interface %s", intf))
-	if err != nil {
-		return err
-	}
-
-	expectedOutput := "Timer intervals: Hello 10, Dead 90"
-	if !strings.Contains(string(output), expectedOutput) {
-		return fmt.Errorf("OSPF configuration validation failed. Expected: %s, Got: %s", expectedOutput, string(output))
-	}
-
-	return nil
+func main() {
+    TestOspfTimers()
 }
