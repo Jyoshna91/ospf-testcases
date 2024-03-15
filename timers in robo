@@ -1,8 +1,8 @@
-func OspfMultiArea(deviceIP string,interf string,area string) error {
+func OspfTimers(deviceIP string,interf string) error {
     serverAddress := deviceIP
     serverUsername := "admin"
     serverPassword := "tcs123"
-    areaa := area
+    //areaa := area
 
     config := &ssh.ClientConfig{
         User: serverUsername,
@@ -49,7 +49,8 @@ func OspfMultiArea(deviceIP string,interf string,area string) error {
             fmt.Sprintf("feature ospf\n"),
             fmt.Sprintf("router ospf 2\n"),
             fmt.Sprintf("interface %s\n",interf),
-            fmt.Sprintf("ip router ospf 2 %s\n",areaa),
+            fmt.Sprintf("ip ospf hello-interval 30\n"),
+            fmt.Sprintf("ip ospf dead-iterval 100\n"),
             "end\n",
     }
 
@@ -61,7 +62,7 @@ func OspfMultiArea(deviceIP string,interf string,area string) error {
 
     return nil
 }
-func CleaningOspfMultiArea(deviceIP string, interf string) error {
+func CleaningOspfTimers(deviceIP string, interf string) error {
     serverAddress := deviceIP
     serverUsername := "admin"
     serverPassword := "tcs123"
@@ -105,9 +106,9 @@ func CleaningOspfMultiArea(deviceIP string, interf string) error {
     //int {intf}\n no ip router ospf 2 area 1\n end'
     commands := []string{
             "conf t\n",
-            fmt.Sprintf("int %s\n",interf),
-            fmt.Sprintf("no ip router ospf 2 area 1\n"),
-            fmt.Sprintf("no router ospf\n"),
+            fmt.Sprintf("no feature ospf\n"),
+            fmt.Sprintf("no ip ospf hello-interval 30\n"),
+            fmt.Sprintf("no ip ospf dead-interval 100\n"),
             "end\n",
     }
     for _,cmd := range commands {
@@ -116,24 +117,24 @@ func CleaningOspfMultiArea(deviceIP string, interf string) error {
     }
     return nil
 }
-func TestOspfMultiArea(t *testing.T){
-    err := OspfMultiArea("10.133.35.148","Ethernet1/11","area 0")
+func TestOspfTimers(t *testing.T){
+    err := OspfTimers("10.133.35.148","Ethernet1/11")
     if err != nil {
         t.Errorf("Failed to enable OSPF on device: %v", err)
     }
-     err1 := OspfMultiArea("10.133.35.148","Ethernet1/1","area 1")
+    err1 := OspfTimers("10.133.35.143","Ethernet1/11")
     if err1 != nil {
         t.Errorf("Failed to enable OSPF on device: %v", err1)
     }
-    err2 := OspfMultiArea("10.133.35.143","Ethernet1/11","area 0")
+    /*err2 := OspfMultiArea("10.133.35.134","Ethernet1/11","area 0")
     if err2 != nil {
         t.Errorf("Failed to enable OSPF on device: %v", err2)
-    }
-   err3 := OspfMultiArea("10.133.35.150","Ethernet1/1","area 1")
+    }*/
+   /*err3 := OspfMultiArea("10.133.35.150","Ethernet1/1","area 1")
     if err3 != nil {
         t.Errorf("Failed to enable OSPF on device: %v", err3)
     }
-/*
+
     err2 := Ospfexec("10.133.35.143","Ethernet1/7")
     if err2 != nil {
         t.Errorf("Failed to enable OSPF on device: %v", err2)
@@ -152,12 +153,12 @@ func TestOspfMultiArea(t *testing.T){
         t.Errorf("Failed to enable OSPF on device: %v", err5)
     }
   */
-    time.Sleep(20 * time.Second)
+    time.Sleep(10 * time.Second)
     serverUsername := "admin"
     serverPassword := "tcs123"
     serverAddress := "10.133.35.148"
-    OutputCommand := "show ip ospf route"
-   // OutputCommand2 := "show ip ospf route"
+    OutputCommand := "show ip ospf interface ethernet 1/11"
+
     router1Config := &ssh.ClientConfig{
         User: serverUsername,
         Auth: []ssh.AuthMethod{
@@ -182,46 +183,8 @@ func TestOspfMultiArea(t *testing.T){
     if err != nil {
         fmt.Printf("Failed to execute ping command on Router 1: %v", err)
     }
-/*    router2Output, err1 := router1Session.CombinedOutput(OutputCommand2)
-    if err != nil {
-        fmt.Printf("Failed to execute ping command on Router 1: %v", err)
-    }*/
-
-/*    fmt.Printf("Router 1 Ping Output:\n%s\n", router1Output)
-    time.Sleep(25 * time.Second)
+    time.Sleep(5 * time.Second)
     fmt.Printf("Router 1 Ping Output:\n%s\n", router1Output)
-    time.Sleep(25 * time.Second)
-    fmt.Printf("Router 1 Ping Output:\n%s\n", router1Output)*/
-    time.Sleep(25 * time.Second)
-    fmt.Printf("Router 1 Ping Output:\n%s\n", router1Output)
-//    fmt.Printf("Router 1 Ping Output:\n%s\n", router2Output)
-    OutputCommand1 := "show ip ospf neighbors"
-   // OutputCommand2 := "show ip ospf route"
-    router1Config1 := &ssh.ClientConfig{
-        User: serverUsername,
-        Auth: []ssh.AuthMethod{
-            ssh.Password(serverPassword),
-        },
-        HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-    }
-    router1Client1, err1 := ssh.Dial("tcp", serverAddress+":22", router1Config1)
-    if err1 !=nil {
-        log.Fatalf("Failed to connect to Router 1: %v", err1)
-    }
-    defer router1Client1.Close()
-
-    router1Session1, err1 := router1Client1.NewSession()
-    if err1 != nil {
-        log.Fatalf("Failed to create session on Router 1: %v", err1)
-
-    }
-    defer router1Session1.Close()
-
-    router1Output1, err1 := router1Session1.CombinedOutput(OutputCommand1)
-    if err1 != nil {
-        fmt.Printf("Failed to execute ping command on Router 1: %v", err1)
-    }
-    time.Sleep(25 * time.Second)
-    fmt.Printf("Router 1 Ping Output:\n%s\n", router1Output1)
 }
+
 
