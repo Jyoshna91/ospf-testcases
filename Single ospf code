@@ -1,0 +1,114 @@
+package debug
+
+import (
+    "fmt"
+    "log"
+    "testing"
+    "time"
+
+    "golang.org/x/crypto/ssh"
+)
+
+func executeCommand(deviceIP, username, password, command string) ([]byte, error) {
+    config := &ssh.ClientConfig{
+        User: username,
+        Auth: []ssh.AuthMethod{
+            ssh.Password(password),
+        },
+        HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+    }
+
+    client, err := ssh.Dial("tcp", deviceIP+":22", config)
+    if err != nil {
+        return nil, err
+    }
+    defer client.Close()
+
+    session, err := client.NewSession()
+    if err != nil {
+        return nil, err
+    }
+    defer session.Close()
+
+    output, err := session.CombinedOutput(command)
+    if err != nil {
+        return nil, err
+    }
+
+    return output, nil
+}
+
+func configureOSPF(deviceIP, username, password, interf string) error {
+    commands := []string{
+        "conf t",
+        "no feature ospf",
+        "feature ospf",
+        "router ospf 2",
+        fmt.Sprintf("interface %s", interf),
+        "ip router ospf 2 area 0",
+        "end",
+    }
+
+    for _, cmd := range commands {
+        _, err := executeCommand(deviceIP, username, password, cmd)
+        if err != nil {
+            return err
+        }
+        time.Sleep(1 * time.Second)
+    }
+
+    return nil
+}
+
+func cleanupOSPF(deviceIP, username, password, interf string) error {
+    commands := []string{
+        "conf t",
+        fmt.Sprintf("int %s", interf),
+        "no ip router ospf 2 area 0",
+        "no router ospf",
+        "end",
+    }
+
+    for _, cmd := range commands {
+        _, err := executeCommand(deviceIP, username, password, cmd)
+        if err != nil {
+            return err
+        }
+        time.Sleep(1 * time.Second)
+    }
+
+    return nil
+}
+
+func TestOspf(t *testing.T) {
+    devices := []struct {
+        IP       string
+        Username string
+        Password string
+        Interface string
+    }{
+        {"10.133.35.148", "admin", "tcs123", "Ethernet1/11"},
+        {"10.133.35.143", "admin", "tcs123", "Ethernet1/11"},
+        {"10.133.35.143", "admin", "tcs123", "Ethernet1/7"},
+        {"10.133.35.143", "admin", "tcs123", "Ethernet1/11"},
+        {"10.133.35.150", "admin", "tcs123", "Ethernet1/1"},
+        {"10.133.35.150", "admin", "tcs123", "Ethernet1/7"},
+    }
+
+    for _, device := range devices {
+        err := configureOSPF(device.IP, device.Username, device.Password, device.Interface)
+        if err != nil {
+            t.Errorf("Failed to enable OSPF on device %s: %v", device.IP, err)
+        }
+    }
+
+    time.Sleep(10 * time.Second)
+
+    for _, device := range devices {
+        output, err := executeCommand(device.IP, device.Username, device.Password, "show ip ospf neighbors")
+        if err != nil {
+            log.Fatalf("Failed to execute command on device %s: %v", device.IP, err)
+        }
+        fmt.Printf("Output for device %s:\n%s\n", device.IP, string(output))
+    }
+}
