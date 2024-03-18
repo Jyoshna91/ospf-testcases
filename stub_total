@@ -60,7 +60,8 @@ func ConnectToRouter(routerIP string) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to router: %w", err)
 	}
-	defer client.Close()
+
+	defer client.Close() // Close the client after use
 
 	return nil
 }
@@ -73,16 +74,19 @@ func ConfigureOSPFAuthentication() error {
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	})
+
 	if err != nil {
 		return fmt.Errorf("failed to dial: %w", err)
 	}
-	defer conn.Close()
+
+	defer conn.Close() // Close the connection after use
 
 	session, err := conn.NewSession()
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
-	defer session.Close()
+
+	defer session.Close() // Close the session after use
 
 	var stdoutBuf bytes.Buffer
 	session.Stdout = &stdoutBuf
@@ -126,13 +130,15 @@ func ValidateOSPFConfiguration() error {
 	if err != nil {
 		return fmt.Errorf("failed to dial: %w", err)
 	}
-	defer conn.Close()
+
+	defer conn.Close() // Close the connection after use
 
 	session, err := conn.NewSession()
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
-	defer session.Close()
+
+	defer session.Close() // Close the session after use
 
 	var stdoutBuf bytes.Buffer
 	session.Stdout = &stdoutBuf
@@ -143,102 +149,4 @@ func ValidateOSPFConfiguration() error {
 
 	command := "show ip ospf interface " + intf
 	if err := session.Run(command); err != nil {
-		return fmt.Errorf("failed to run command '%s': %w", command, err)
-	}
-
-	output := stdoutBuf.String()
-	if !containsAuthenticationConfig(output) {
-		return fmt.Errorf("OSPF authentication configuration not found")
-	}
-
-	return nil
-}
-
-func containsAuthenticationConfig(output string) bool {
-	// Add logic to analyze the OSPF configuration output and check if authentication configuration is present
-	return true // Placeholder return value
-}
-
-func UnconfigureOSPFAuthentication() error {
-	conn, err := ssh.Dial("tcp", routerIPs[0]+":22", &ssh.ClientConfig{
-		User: username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(password),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to dial: %w", err)
-	}
-	defer conn.Close()
-
-	session, err := conn.NewSession()
-	if err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
-	}
-	defer session.Close()
-
-	var stdoutBuf bytes.Buffer
-	session.Stdout = &stdoutBuf
-
-	if err := session.RequestPty("vt100", 80, 40, ssh.TerminalModes{}); err != nil {
-		return fmt.Errorf("request for pseudo terminal failed: %w", err)
-	}
-
-	unconfigCommands := []string{
-		"conf t\n",
-		fmt.Sprintf("interface %s\n", intf),
-		"router ospf 2\n",
-		"no area 0.0.0.0 authentication message-digest\n",
-		"exit\n",
-		"interface ethernet1/7\n",
-		"no ip ospf authentication-key 0 cisco\n",
-		"no ip ospf message-digest-key 21 md5 0 cisco\n",
-		"end\n",
-	}
-
-	for _, cmd := range unconfigCommands {
-		if err := session.Run(cmd); err != nil {
-			return fmt.Errorf("failed to run command '%s': %w", cmd, err)
-		}
-		time.Sleep(1 * time.Second)
-	}
-
-	return nil
-}
-
-func ExecuteCommand() error {
-	conn, err := ssh.Dial("tcp", routerIPs[0]+":22", &ssh.ClientConfig{
-		User: username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(password),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to dial: %w", err)
-	}
-	defer conn.Close()
-
-	session, err := conn.NewSession()
-	if err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
-	}
-	defer session.Close()
-
-	var stdoutBuf bytes.Buffer
-	session.Stdout = &stdoutBuf
-
-	if err := session.RequestPty("vt100", 80, 40, ssh.TerminalModes{}); err != nil {
-		return fmt.Errorf("request for pseudo terminal failed: %w", err)
-	}
-
-	command := "show ip ospf interface " + intf
-	if err := session.Run(command); err != nil {
-		return fmt.Errorf("failed to run command '%s': %w", command, err)
-	}
-
-	output := stdoutBuf.String()
-	fmt.Println(output) // Print the output to console
-	return nil
-}
+		return fmt.Errorf("failed to run command '%s': %
