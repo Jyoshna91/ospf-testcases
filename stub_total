@@ -1,22 +1,22 @@
-package main
+package debug
 
 import (
 	"bytes"
 	"fmt"
 	"log"
 	"time"
-
+        "testing"
 	"golang.org/x/crypto/ssh"
 )
 
 var (
 	username   = "admin"
 	password   = "tcs123"
-	interface1 = "ethernet1/7"
-	routerIP   = "10.133.35.139"
+	interface1 = "ethernet1/11"
+	routerIP   = "10.133.35.143"
 )
 
-func main() {
+func TestospfAuth2(t *testing.T) {
 	err := configureOSPFAuthentication()
 	if err != nil {
 		log.Fatalf("Failed to configure OSPF authentication on router: %v", err)
