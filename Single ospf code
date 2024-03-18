@@ -1,114 +1,162 @@
-package debug
+package main
 
 import (
+    "bytes"
     "fmt"
+    "io/ioutil"
     "log"
-    "testing"
     "time"
 
     "golang.org/x/crypto/ssh"
 )
 
-func executeCommand(deviceIP, username, password, command string) ([]byte, error) {
+func OspfAuthentication(deviceIP string, interf string) (string, error) {
+    serverUsername := "admin"
+    serverPassword := "tcs123"
+
     config := &ssh.ClientConfig{
-        User: username,
+        User: serverUsername,
         Auth: []ssh.AuthMethod{
-            ssh.Password(password),
+            ssh.Password(serverPassword),
         },
         HostKeyCallback: ssh.InsecureIgnoreHostKey(),
     }
 
     client, err := ssh.Dial("tcp", deviceIP+":22", config)
     if err != nil {
-        return nil, err
+        return "", fmt.Errorf("failed to connect: %w", err)
     }
     defer client.Close()
 
     session, err := client.NewSession()
     if err != nil {
-        return nil, err
+        return "", fmt.Errorf("failed to create session: %w", err)
     }
     defer session.Close()
 
-    output, err := session.CombinedOutput(command)
+    var stdoutBuf bytes.Buffer
+    session.Stdout = &stdoutBuf
+
+    if err := session.RequestPty("vt100", 0, 0, nil); err != nil {
+        return "", fmt.Errorf("request for pseudo terminal failed: %w", err)
+    }
+
+    if err := session.Shell(); err != nil {
+        return "", fmt.Errorf("failed to start shell: %w", err)
+    }
+
+    commands := []string{
+        "conf t\n",
+        fmt.Sprintf("router ospf 2\n"),
+        fmt.Sprintf("area 0.0.0.0 authentication message-digest\n"),
+        fmt.Sprintf("exit\n"),
+        fmt.Sprintf("interface %s\n", interf),
+        fmt.Sprintf("ip ospf authentication-key 0 cisco\n"),
+        fmt.Sprintf("ip ospf message-digest-key 21 md5 0 Cisco\n"),
+        "end\n",
+    }
+
+    for _, cmd := range commands {
+        _, err := session.Write([]byte(cmd))
+        if err != nil {
+            return "", fmt.Errorf("failed to write command: %w", err)
+        }
+        time.Sleep(1 * time.Second)
+    }
+
+    // Add delay to allow configuration to apply
+    time.Sleep(5 * time.Second)
+
+    // Retrieve configuration output
+    output, err := ioutil.ReadAll(&stdoutBuf)
     if err != nil {
-        return nil, err
+        return "", fmt.Errorf("failed to read output: %w", err)
     }
 
-    return output, nil
+    return string(output), nil
 }
 
-func configureOSPF(deviceIP, username, password, interf string) error {
-    commands := []string{
-        "conf t",
-        "no feature ospf",
-        "feature ospf",
-        "router ospf 2",
-        fmt.Sprintf("interface %s", interf),
-        "ip router ospf 2 area 0",
-        "end",
+func OspfUnconfigure(deviceIP string, interf string) (string, error) {
+    serverUsername := "admin"
+    serverPassword := "tcs123"
+
+    config := &ssh.ClientConfig{
+        User: serverUsername,
+        Auth: []ssh.AuthMethod{
+            ssh.Password(serverPassword),
+        },
+        HostKeyCallback: ssh.InsecureIgnoreHostKey(),
     }
 
-    for _, cmd := range commands {
-        _, err := executeCommand(deviceIP, username, password, cmd)
+    client, err := ssh.Dial("tcp", deviceIP+":22", config)
+    if err != nil {
+        return "", fmt.Errorf("failed to connect: %w", err)
+    }
+    defer client.Close()
+
+    session, err := client.NewSession()
+    if err != nil {
+        return "", fmt.Errorf("failed to create session: %w", err)
+    }
+    defer session.Close()
+
+    var stdoutBuf bytes.Buffer
+    session.Stdout = &stdoutBuf
+
+    if err := session.RequestPty("vt100", 0, 0, nil); err != nil {
+        return "", fmt.Errorf("request for pseudo terminal failed: %w", err)
+    }
+
+    if err := session.Shell(); err != nil {
+        return "", fmt.Errorf("failed to start shell: %w", err)
+    }
+
+    unconfigureCommands := []string{
+        "conf t\n",
+        fmt.Sprintf("interface %s\n", interf),
+        "no ip ospf authentication-key 0 cisco\n",
+        "no ip ospf message-digest-key 21 md5 0 Cisco\n",
+        "exit\n",
+        "router ospf 2\n",
+        "no area 0.0.0.0 authentication message-digest\n",
+        "exit\n",
+        "end\n",
+    }
+
+    for _, cmd := range unconfigureCommands {
+        _, err := session.Write([]byte(cmd))
         if err != nil {
-            return err
+            return "", fmt.Errorf("failed to write unconfigure command: %w", err)
         }
         time.Sleep(1 * time.Second)
     }
 
-    return nil
+    // Add delay to allow unconfiguration to apply
+    time.Sleep(5 * time.Second)
+
+    // Retrieve unconfigure output
+    output, err := ioutil.ReadAll(&stdoutBuf)
+    if err != nil {
+        return "", fmt.Errorf("failed to read unconfigure output: %w", err)
+    }
+
+    return string(output), nil
 }
 
-func cleanupOSPF(deviceIP, username, password, interf string) error {
-    commands := []string{
-        "conf t",
-        fmt.Sprintf("int %s", interf),
-        "no ip router ospf 2 area 0",
-        "no router ospf",
-        "end",
+func main() {
+    // Apply OSPF authentication configuration
+    output, err := OspfAuthentication("10.133.35.143", "Ethernet1/11")
+    if err != nil {
+        log.Fatalf("Failed to apply OSPF authentication configuration: %v", err)
     }
+    fmt.Println("Configuration output after applying OSPF authentication:")
+    fmt.Println(output)
 
-    for _, cmd := range commands {
-        _, err := executeCommand(deviceIP, username, password, cmd)
-        if err != nil {
-            return err
-        }
-        time.Sleep(1 * time.Second)
+    // Unconfigure OSPF authentication
+    unconfigureOutput, err := OspfUnconfigure("10.133.35.143", "Ethernet1/11")
+    if err != nil {
+        log.Fatalf("Failed to unconfigure OSPF authentication: %v", err)
     }
-
-    return nil
-}
-
-func TestOspf(t *testing.T) {
-    devices := []struct {
-        IP       string
-        Username string
-        Password string
-        Interface string
-    }{
-        {"10.133.35.148", "admin", "tcs123", "Ethernet1/11"},
-        {"10.133.35.143", "admin", "tcs123", "Ethernet1/11"},
-        {"10.133.35.143", "admin", "tcs123", "Ethernet1/7"},
-        {"10.133.35.143", "admin", "tcs123", "Ethernet1/11"},
-        {"10.133.35.150", "admin", "tcs123", "Ethernet1/1"},
-        {"10.133.35.150", "admin", "tcs123", "Ethernet1/7"},
-    }
-
-    for _, device := range devices {
-        err := configureOSPF(device.IP, device.Username, device.Password, device.Interface)
-        if err != nil {
-            t.Errorf("Failed to enable OSPF on device %s: %v", device.IP, err)
-        }
-    }
-
-    time.Sleep(10 * time.Second)
-
-    for _, device := range devices {
-        output, err := executeCommand(device.IP, device.Username, device.Password, "show ip ospf neighbors")
-        if err != nil {
-            log.Fatalf("Failed to execute command on device %s: %v", device.IP, err)
-        }
-        fmt.Printf("Output for device %s:\n%s\n", device.IP, string(output))
-    }
+    fmt.Println("Unconfigure output:")
+    fmt.Println(unconfigureOutput)
 }
