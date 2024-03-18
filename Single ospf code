@@ -1,87 +1,67 @@
-package main
+*** Settings ***
+Library    SSHLibrary
+Library    String
 
-import (
-	"bytes"
-	"fmt"
-	"io/ioutil"
-	"log"
-	"time"
+*** Variables ***
+${username}           admin
+${password}           tcs123
+@{router_ips}   10.133.35.139	10.133.35.143
+${intf}         ethernet1/7
 
-	"golang.org/x/crypto/ssh"
-)
+*** Test Cases ***
+Configure Authentication
+     FOR        ${router_ip}    IN      @{router_ips}
+        Connect To Router     ${router_ip}
+        Configure OSPF Authentication   ${intf}
+        Validate OSPF Configuration     ${intf}
+     END
+Unconfigured Authentication
+     FOR        ${router_ip}    IN      @{router_ips}
+        Connect To Router   ${router_ip}
+        Unconfigured OSPF Authentication    ${intf}
+        Command Execution   ${intf}
+     END
 
-func OspfAuthentication(deviceIP string, interf string) (string, error) {
-	serverUsername := "admin"
-	serverPassword := "tcs123"
+*** Keywords ***
+Connect To Router
+    [Arguments]		${router_ip}
+    Open Connection     ${router_ip}
+    Login       ${username}     ${password}
+    
 
-	config := &ssh.ClientConfig{
-		User: serverUsername,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(serverPassword),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
+Configure OSPF Authentication
+    [Arguments]    ${intf}
+    Write       configure terminal
+    Write       int ${intf}
+    Write       ip router ospf 2 area 0
+    Write       exit
+    Write       router ospf 2
+    Write       area 0.0.0.0 authentication message-digest
+    Write       exit
+    Write       int ${intf}
+    Write       ip ospf authentication-key 0 cisco
+    Write       ip ospf message-digest-key 21 md5 0 cisco
+    Write       end    
 
-	client, err := ssh.Dial("tcp", deviceIP+":22", config)
-	if err != nil {
-		return "", fmt.Errorf("failed to connect: %w", err)
-	}
-	defer client.Close()
+Validate OSPF Configuration
+    [Arguments]		${intf}
+    ${ospf_config} =    Execute Command    show ip ospf 2 interface ${intf}
+    Log To Console   ${ospf_config}
+    Should Contain    ${ospf_config}    Message-digest authentication
 
-	session, err := client.NewSession()
-	if err != nil {
-		return "", fmt.Errorf("failed to create session: %w", err)
-	}
-	defer session.Close()
+Unconfigured OSPF Authentication
+    [Arguments]    ${intf}
+    Write       configure terminal
+    Write       int ${intf}
+    Write       router ospf 2
+    Write       no area 0.0.0.0 authentication message-digest
+    Write       exit
+    Write       int ${intf}
+    Write       no ip ospf authentication-key 0 cisco
+    Write       no ip ospf message-digest-key 21 md5 0 cisco
+    Write       end
 
-	var stdoutBuf bytes.Buffer
-	session.Stdout = &stdoutBuf
-
-	if err := session.RequestPty("vt100", 0, 0, nil); err != nil {
-		return "", fmt.Errorf("request for pseudo terminal failed: %w", err)
-	}
-
-	if err := session.Shell(); err != nil {
-		return "", fmt.Errorf("failed to start shell: %w", err)
-	}
-
-	commands := []string{
-		"conf t\n",
-		fmt.Sprintf("router ospf 2\n"),
-		fmt.Sprintf("area 0.0.0.0 authentication message-digest\n"),
-		fmt.Sprintf("exit\n"),
-		fmt.Sprintf("interface %s\n", interf),
-		fmt.Sprintf("ip ospf authentication-key 0 cisco\n"),
-		fmt.Sprintf("ip ospf message-digest-key 21 md5 0 Cisco\n"),
-		"end\n",
-	}
-
-	for _, cmd := range commands {
-		_, err := session.Stdin.Write([]byte(cmd))
-		if err != nil {
-			return "", fmt.Errorf("failed to write command: %w", err)
-		}
-		time.Sleep(1 * time.Second)
-	}
-
-	// Add delay to allow configuration to apply
-	time.Sleep(5 * time.Second)
-
-	// Retrieve configuration output
-	output, err := ioutil.ReadAll(&stdoutBuf)
-	if err != nil {
-		return "", fmt.Errorf("failed to read output: %w", err)
-	}
-
-	return string(output), nil
-}
-
-func main() {
-	// Apply OSPF authentication configuration
-	output, err := OspfAuthentication("10.133.35.143", "Ethernet1/11")
-	if err != nil {
-		log.Fatalf("Failed to apply OSPF authentication configuration: %v", err)
-	}
-	fmt.Println("Configuration output after applying OSPF authentication:")
-	fmt.Println(output)
-}
+Command Execution
+    [Arguments]         ${intf}
+    ${ospf_unconfig} =    Execute Command    show ip ospf 2 interface ${intf}
+    Log To Console    ${ospf_unconfig}
