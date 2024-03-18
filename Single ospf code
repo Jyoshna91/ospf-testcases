@@ -1,162 +1,87 @@
 package main
 
 import (
-    "bytes"
-    "fmt"
-    "io/ioutil"
-    "log"
-    "time"
+	"bytes"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"time"
 
-    "golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh"
 )
 
 func OspfAuthentication(deviceIP string, interf string) (string, error) {
-    serverUsername := "admin"
-    serverPassword := "tcs123"
+	serverUsername := "admin"
+	serverPassword := "tcs123"
 
-    config := &ssh.ClientConfig{
-        User: serverUsername,
-        Auth: []ssh.AuthMethod{
-            ssh.Password(serverPassword),
-        },
-        HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-    }
+	config := &ssh.ClientConfig{
+		User: serverUsername,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(serverPassword),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
 
-    client, err := ssh.Dial("tcp", deviceIP+":22", config)
-    if err != nil {
-        return "", fmt.Errorf("failed to connect: %w", err)
-    }
-    defer client.Close()
+	client, err := ssh.Dial("tcp", deviceIP+":22", config)
+	if err != nil {
+		return "", fmt.Errorf("failed to connect: %w", err)
+	}
+	defer client.Close()
 
-    session, err := client.NewSession()
-    if err != nil {
-        return "", fmt.Errorf("failed to create session: %w", err)
-    }
-    defer session.Close()
+	session, err := client.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("failed to create session: %w", err)
+	}
+	defer session.Close()
 
-    var stdoutBuf bytes.Buffer
-    session.Stdout = &stdoutBuf
+	var stdoutBuf bytes.Buffer
+	session.Stdout = &stdoutBuf
 
-    if err := session.RequestPty("vt100", 0, 0, nil); err != nil {
-        return "", fmt.Errorf("request for pseudo terminal failed: %w", err)
-    }
+	if err := session.RequestPty("vt100", 0, 0, nil); err != nil {
+		return "", fmt.Errorf("request for pseudo terminal failed: %w", err)
+	}
 
-    if err := session.Shell(); err != nil {
-        return "", fmt.Errorf("failed to start shell: %w", err)
-    }
+	if err := session.Shell(); err != nil {
+		return "", fmt.Errorf("failed to start shell: %w", err)
+	}
 
-    commands := []string{
-        "conf t\n",
-        fmt.Sprintf("router ospf 2\n"),
-        fmt.Sprintf("area 0.0.0.0 authentication message-digest\n"),
-        fmt.Sprintf("exit\n"),
-        fmt.Sprintf("interface %s\n", interf),
-        fmt.Sprintf("ip ospf authentication-key 0 cisco\n"),
-        fmt.Sprintf("ip ospf message-digest-key 21 md5 0 Cisco\n"),
-        "end\n",
-    }
+	commands := []string{
+		"conf t\n",
+		fmt.Sprintf("router ospf 2\n"),
+		fmt.Sprintf("area 0.0.0.0 authentication message-digest\n"),
+		fmt.Sprintf("exit\n"),
+		fmt.Sprintf("interface %s\n", interf),
+		fmt.Sprintf("ip ospf authentication-key 0 cisco\n"),
+		fmt.Sprintf("ip ospf message-digest-key 21 md5 0 Cisco\n"),
+		"end\n",
+	}
 
-    for _, cmd := range commands {
-        _, err := session.Write([]byte(cmd))
-        if err != nil {
-            return "", fmt.Errorf("failed to write command: %w", err)
-        }
-        time.Sleep(1 * time.Second)
-    }
+	for _, cmd := range commands {
+		_, err := session.Stdin.Write([]byte(cmd))
+		if err != nil {
+			return "", fmt.Errorf("failed to write command: %w", err)
+		}
+		time.Sleep(1 * time.Second)
+	}
 
-    // Add delay to allow configuration to apply
-    time.Sleep(5 * time.Second)
+	// Add delay to allow configuration to apply
+	time.Sleep(5 * time.Second)
 
-    // Retrieve configuration output
-    output, err := ioutil.ReadAll(&stdoutBuf)
-    if err != nil {
-        return "", fmt.Errorf("failed to read output: %w", err)
-    }
+	// Retrieve configuration output
+	output, err := ioutil.ReadAll(&stdoutBuf)
+	if err != nil {
+		return "", fmt.Errorf("failed to read output: %w", err)
+	}
 
-    return string(output), nil
-}
-
-func OspfUnconfigure(deviceIP string, interf string) (string, error) {
-    serverUsername := "admin"
-    serverPassword := "tcs123"
-
-    config := &ssh.ClientConfig{
-        User: serverUsername,
-        Auth: []ssh.AuthMethod{
-            ssh.Password(serverPassword),
-        },
-        HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-    }
-
-    client, err := ssh.Dial("tcp", deviceIP+":22", config)
-    if err != nil {
-        return "", fmt.Errorf("failed to connect: %w", err)
-    }
-    defer client.Close()
-
-    session, err := client.NewSession()
-    if err != nil {
-        return "", fmt.Errorf("failed to create session: %w", err)
-    }
-    defer session.Close()
-
-    var stdoutBuf bytes.Buffer
-    session.Stdout = &stdoutBuf
-
-    if err := session.RequestPty("vt100", 0, 0, nil); err != nil {
-        return "", fmt.Errorf("request for pseudo terminal failed: %w", err)
-    }
-
-    if err := session.Shell(); err != nil {
-        return "", fmt.Errorf("failed to start shell: %w", err)
-    }
-
-    unconfigureCommands := []string{
-        "conf t\n",
-        fmt.Sprintf("interface %s\n", interf),
-        "no ip ospf authentication-key 0 cisco\n",
-        "no ip ospf message-digest-key 21 md5 0 Cisco\n",
-        "exit\n",
-        "router ospf 2\n",
-        "no area 0.0.0.0 authentication message-digest\n",
-        "exit\n",
-        "end\n",
-    }
-
-    for _, cmd := range unconfigureCommands {
-        _, err := session.Write([]byte(cmd))
-        if err != nil {
-            return "", fmt.Errorf("failed to write unconfigure command: %w", err)
-        }
-        time.Sleep(1 * time.Second)
-    }
-
-    // Add delay to allow unconfiguration to apply
-    time.Sleep(5 * time.Second)
-
-    // Retrieve unconfigure output
-    output, err := ioutil.ReadAll(&stdoutBuf)
-    if err != nil {
-        return "", fmt.Errorf("failed to read unconfigure output: %w", err)
-    }
-
-    return string(output), nil
+	return string(output), nil
 }
 
 func main() {
-    // Apply OSPF authentication configuration
-    output, err := OspfAuthentication("10.133.35.143", "Ethernet1/11")
-    if err != nil {
-        log.Fatalf("Failed to apply OSPF authentication configuration: %v", err)
-    }
-    fmt.Println("Configuration output after applying OSPF authentication:")
-    fmt.Println(output)
-
-    // Unconfigure OSPF authentication
-    unconfigureOutput, err := OspfUnconfigure("10.133.35.143", "Ethernet1/11")
-    if err != nil {
-        log.Fatalf("Failed to unconfigure OSPF authentication: %v", err)
-    }
-    fmt.Println("Unconfigure output:")
-    fmt.Println(unconfigureOutput)
+	// Apply OSPF authentication configuration
+	output, err := OspfAuthentication("10.133.35.143", "Ethernet1/11")
+	if err != nil {
+		log.Fatalf("Failed to apply OSPF authentication configuration: %v", err)
+	}
+	fmt.Println("Configuration output after applying OSPF authentication:")
+	fmt.Println(output)
 }
