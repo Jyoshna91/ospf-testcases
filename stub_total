@@ -1,43 +1,22 @@
-package debug
+package main
 
 import (
 	"bytes"
 	"fmt"
 	"log"
-	"time"
-        "testing"
 	"golang.org/x/crypto/ssh"
 )
 
+// Define your variables
 var (
-	username   = "admin"
-	password   = "tcs123"
-	interface1 = "ethernet1/11"
-	routerIP   = "10.133.35.143"
+	username  = "admin"
+	password  = "tcs123"
+	routerIPs = []string{"10.133.35.139", "10.133.35.143"}
+	intf      = "ethernet1/7"
 )
 
-func TestospfAuth2(t *testing.T) {
-	err := configureOSPFAuthentication()
-	if err != nil {
-		log.Fatalf("Failed to configure OSPF authentication on router: %v", err)
-	}
-
-	time.Sleep(2 * time.Second) // Add delay before unconfiguring
-
-	err = unconfigureOSPFAuthentication()
-	if err != nil {
-		log.Fatalf("Failed to unconfigure OSPF authentication on router: %v", err)
-	}
-
-	time.Sleep(2 * time.Second) // Add delay before executing command
-
-	err = executeCommand()
-	if err != nil {
-		log.Fatalf("Failed to execute command on router: %v", err)
-	}
-}
-
-func configureOSPFAuthentication() error {
+// Function to connect to the router and return an SSH session
+func connectToRouter(routerIP, username, password string) (*ssh.Session, error) {
 	config := &ssh.ClientConfig{
 		User: username,
 		Auth: []ssh.AuthMethod{
@@ -48,125 +27,94 @@ func configureOSPFAuthentication() error {
 
 	client, err := ssh.Dial("tcp", routerIP+":22", config)
 	if err != nil {
-		return fmt.Errorf("failed to connect to router: %w", err)
+		return nil, fmt.Errorf("failed to dial: %v", err)
 	}
-	defer client.Close()
 
 	session, err := client.NewSession()
 	if err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
+		return nil, fmt.Errorf("failed to create session: %v", err)
 	}
-	defer session.Close()
 
+	return session, nil
+}
+
+// Function to execute commands on the router
+func executeCommands(session *ssh.Session, commands []string) (string, error) {
 	var stdoutBuf bytes.Buffer
 	session.Stdout = &stdoutBuf
-
-	commands := []string{
-		"conf t\n",
-		fmt.Sprintf("interface %s\n", interface1),
-		"ip router ospf 2 area 0\n",
-		"exit\n",
-		"router ospf 2\n",
-		"area 0.0.0.0 authentication message-digest\n",
-		"exit\n",
-		"interface " + interface1 + "\n",
-		"ip ospf authentication-key 0 cisco\n",
-		"ip ospf message-digest-key 21 md5 0 cisco\n",
-		"end\n",
-	}
 
 	for _, cmd := range commands {
-		err := session.Run(cmd)
-		if err != nil {
-			return fmt.Errorf("failed to run command '%s': %w", cmd, err)
+		if err := session.Run(cmd); err != nil {
+			return "", fmt.Errorf("failed to execute command '%s': %v", cmd, err)
 		}
-		time.Sleep(1 * time.Second) // Add delay between commands
 	}
 
-	return nil
+	return stdoutBuf.String(), nil
 }
 
-func unconfigureOSPFAuthentication() error {
-	config := &ssh.ClientConfig{
-		User: username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(password),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
-
-	client, err := ssh.Dial("tcp", routerIP+":22", config)
-	if err != nil {
-		return fmt.Errorf("failed to connect to router: %w", err)
-	}
-	defer client.Close()
-
-	session, err := client.NewSession()
-	if err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
-	}
-	defer session.Close()
-
-	var stdoutBuf bytes.Buffer
-	session.Stdout = &stdoutBuf
-
+// Function to configure OSPF Authentication on the router
+func configureOSPF(session *ssh.Session, intf string) error {
 	commands := []string{
-		"conf t\n",
-		fmt.Sprintf("interface %s\n", interface1),
-		"router ospf 2\n",
-		"no area 0.0.0.0 authentication message-digest\n",
-		"exit\n",
-		"interface " + interface1 + "\n",
-		"no ip ospf authentication-key 0 cisco\n",
-		"no ip ospf message-digest-key 21 md5 0 cisco\n",
-		"end\n",
+		"configure terminal",
+		"int " + intf,
+		"ip router ospf 2 area 0",
+		"exit",
+		"router ospf 2",
+		"area 0.0.0.0 authentication message-digest",
+		"exit",
+		"int " + intf,
+		"ip ospf authentication-key 0 cisco",
+		"ip ospf message-digest-key 21 md5 0 cisco",
+		"end",
 	}
 
-	for _, cmd := range commands {
-		err := session.Run(cmd)
-		if err != nil {
-			return fmt.Errorf("failed to run command '%s': %w", cmd, err)
-		}
-		time.Sleep(1 * time.Second) // Add delay between commands
-	}
-
-	return nil
+	_, err := executeCommands(session, commands)
+	return err
 }
 
-func executeCommand() error {
-	config := &ssh.ClientConfig{
-		User: username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(password),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+// Function to unconfigure OSPF Authentication on the router
+func unconfigureOSPF(session *ssh.Session, intf string) error {
+	commands := []string{
+		"configure terminal",
+		"int " + intf,
+		"no ip router ospf 2 area 0",
+		"exit",
+		"router ospf 2",
+		"no area 0.0.0.0 authentication message-digest",
+		"exit",
+		"int " + intf,
+		"no ip ospf authentication-key 0 cisco",
+		"no ip ospf message-digest-key 21 md5 0 cisco",
+		"end",
 	}
 
-	client, err := ssh.Dial("tcp", routerIP+":22", config)
-	if err != nil {
-		return fmt.Errorf("failed to connect to router: %w", err)
+	_, err := executeCommands(session, commands)
+	return err
+}
+
+func main() {
+	// Loop through router IPs for configuration and unconfiguration
+	for _, routerIP := range routerIPs {
+		session, err := connectToRouter(routerIP, username, password)
+		if err != nil {
+			log.Fatalf("Error connecting to router %s: %v", routerIP, err)
+		}
+		defer session.Close()
+
+		// Configure OSPF Authentication
+		err = configureOSPF(session, intf)
+		if err != nil {
+			log.Fatalf("Error configuring OSPF on router %s: %v", routerIP, err)
+		} else {
+			fmt.Printf("Successfully configured OSPF authentication on router %s.\n", routerIP)
+		}
+
+		// Unconfigure OSPF Authentication
+		err = unconfigureOSPF(session, intf)
+		if err != nil {
+			log.Fatalf("Error unconfiguring OSPF on router %s: %v", routerIP, err)
+		} else {
+			fmt.Printf("Successfully unconfigured OSPF authentication on router %s.\n", routerIP)
+		}
 	}
-	defer client.Close()
-
-	session, err := client.NewSession()
-	if err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
-	}
-	defer session.Close()
-
-	var stdoutBuf bytes.Buffer
-	session.Stdout = &stdoutBuf
-
-	// Command to execute
-	command := "show ip ospf interface " + interface1
-
-	err = session.Run(command)
-	if err != nil {
-		return fmt.Errorf("failed to run command '%s': %w", command, err)
-	}
-
-	output := stdoutBuf.String()
-	fmt.Println(output) // Print the command output
-
-	return nil
 }
