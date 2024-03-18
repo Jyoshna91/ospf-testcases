@@ -10,44 +10,34 @@ import (
 )
 
 var (
-	username = "admin"
-	password = "tcs123"
-	intf     = "ethernet1/7"
-	routerIPs = []string{"10.133.35.139", "10.133.35.143"}
+	username   = "admin"
+	password   = "tcs123"
+	interface1 = "ethernet1/7"
+	routerIP   = "10.133.35.139"
 )
 
 func main() {
-	for _, routerIP := range routerIPs {
-		err := ConnectToRouter(routerIP)
-		if err != nil {
-			log.Fatalf("Failed to connect to router %s: %v", routerIP, err)
-		}
+	err := configureOSPFAuthentication()
+	if err != nil {
+		log.Fatalf("Failed to configure OSPF authentication on router: %v", err)
+	}
 
-		err = ConfigureOSPFAuthentication()
-		if err != nil {
-			log.Fatalf("Failed to configure OSPF authentication on router %s: %v", routerIP, err)
-		}
+	time.Sleep(2 * time.Second) // Add delay before unconfiguring
 
-		err = ValidateOSPFConfiguration()
-		if err != nil {
-			log.Fatalf("Validation failed on router %s: %v", routerIP, err)
-		}
+	err = unconfigureOSPFAuthentication()
+	if err != nil {
+		log.Fatalf("Failed to unconfigure OSPF authentication on router: %v", err)
+	}
 
-		time.Sleep(2 * time.Second) // Add delay before unconfiguring
+	time.Sleep(2 * time.Second) // Add delay before executing command
 
-		err = UnconfigureOSPFAuthentication()
-		if err != nil {
-			log.Fatalf("Failed to unconfigure OSPF authentication on router %s: %v", routerIP, err)
-		}
-
-		err = ExecuteCommand()
-		if err != nil {
-			log.Fatalf("Failed to execute command on router %s: %v", routerIP, err)
-		}
+	err = executeCommand()
+	if err != nil {
+		log.Fatalf("Failed to execute command on router: %v", err)
 	}
 }
 
-func ConnectToRouter(routerIP string) error {
+func configureOSPFAuthentication() error {
 	config := &ssh.ClientConfig{
 		User: username,
 		Auth: []ssh.AuthMethod{
@@ -60,195 +50,123 @@ func ConnectToRouter(routerIP string) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to router: %w", err)
 	}
+	defer client.Close()
 
-	defer client.Close() // Close the client after use
-
-	return nil
-}
-
-func ConfigureOSPFAuthentication() error {
-	conn, err := ssh.Dial("tcp", routerIPs[0]+":22", &ssh.ClientConfig{
-		User: username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(password),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	})
-
-	if err != nil {
-		return fmt.Errorf("failed to dial: %w", err)
-	}
-
-	defer conn.Close() // Close the connection after use
-
-	session, err := conn.NewSession()
+	session, err := client.NewSession()
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
-
-	defer session.Close() // Close the session after use
+	defer session.Close()
 
 	var stdoutBuf bytes.Buffer
 	session.Stdout = &stdoutBuf
 
-	if err := session.RequestPty("vt100", 80, 40, ssh.TerminalModes{}); err != nil {
-		return fmt.Errorf("request for pseudo terminal failed: %w", err)
-	}
-
-	configCommands := []string{
+	commands := []string{
 		"conf t\n",
-		fmt.Sprintf("interface %s\n", intf),
+		fmt.Sprintf("interface %s\n", interface1),
 		"ip router ospf 2 area 0\n",
 		"exit\n",
 		"router ospf 2\n",
 		"area 0.0.0.0 authentication message-digest\n",
 		"exit\n",
-		"interface ethernet1/7\n",
+		"interface " + interface1 + "\n",
 		"ip ospf authentication-key 0 cisco\n",
 		"ip ospf message-digest-key 21 md5 0 cisco\n",
 		"end\n",
 	}
 
-	for _, cmd := range configCommands {
-		if err := session.Run(cmd); err != nil {
+	for _, cmd := range commands {
+		err := session.Run(cmd)
+		if err != nil {
 			return fmt.Errorf("failed to run command '%s': %w", cmd, err)
 		}
-		time.Sleep(1 * time.Second)
+		time.Sleep(1 * time.Second) // Add delay between commands
 	}
 
 	return nil
 }
 
-func ValidateOSPFConfiguration() error {
-	conn, err := ssh.Dial("tcp", routerIPs[0]+":22", &ssh.ClientConfig{
+func unconfigureOSPFAuthentication() error {
+	config := &ssh.ClientConfig{
 		User: username,
 		Auth: []ssh.AuthMethod{
 			ssh.Password(password),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to dial: %w", err)
 	}
 
-	defer conn.Close() // Close the connection after use
+	client, err := ssh.Dial("tcp", routerIP+":22", config)
+	if err != nil {
+		return fmt.Errorf("failed to connect to router: %w", err)
+	}
+	defer client.Close()
 
-	session, err := conn.NewSession()
+	session, err := client.NewSession()
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
-
-	defer session.Close() // Close the session after use
+	defer session.Close()
 
 	var stdoutBuf bytes.Buffer
 	session.Stdout = &stdoutBuf
 
-	if err := session.RequestPty("vt100", 80, 40, ssh.TerminalModes{}); err != nil {
-		return fmt.Errorf("request for pseudo terminal failed: %w", err)
-	}
-
-	command := "show ip ospf interface " + intf
-	if err := session.Run(command); err != nil {
-		return fmt.Errorf("failed to run command '%s': %w", command, err)
-	}
-
-	output := stdoutBuf.String()
-	if !containsAuthenticationConfig(output) {
-		return fmt.Errorf("OSPF authentication configuration not found")
-	}
-
-	return nil
-}
-
-func containsAuthenticationConfig(output string) bool {
-	// Add logic to analyze the OSPF configuration output and check if authentication configuration is present
-	return true // Placeholder return value
-}
-
-func UnconfigureOSPFAuthentication() error {
-	conn, err := ssh.Dial("tcp", routerIPs[0]+":22", &ssh.ClientConfig{
-		User: username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(password),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to dial: %w", err)
-	}
-
-	defer conn.Close() // Close the connection after use
-
-	session, err := conn.NewSession()
-	if err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
-	}
-
-	defer session.Close() // Close the session after use
-
-	var stdoutBuf bytes.Buffer
-	session.Stdout = &stdoutBuf
-
-	if err := session.RequestPty("vt100", 80, 40, ssh.TerminalModes{}); err != nil {
-		return fmt.Errorf("request for pseudo terminal failed: %w", err)
-	}
-
-	unconfigCommands := []string{
+	commands := []string{
 		"conf t\n",
-		fmt.Sprintf("interface %s\n", intf),
+		fmt.Sprintf("interface %s\n", interface1),
 		"router ospf 2\n",
 		"no area 0.0.0.0 authentication message-digest\n",
 		"exit\n",
-		"interface ethernet1/7\n",
+		"interface " + interface1 + "\n",
 		"no ip ospf authentication-key 0 cisco\n",
 		"no ip ospf message-digest-key 21 md5 0 cisco\n",
 		"end\n",
 	}
 
-	for _, cmd := range unconfigCommands {
-		if err := session.Run(cmd); err != nil {
+	for _, cmd := range commands {
+		err := session.Run(cmd)
+		if err != nil {
 			return fmt.Errorf("failed to run command '%s': %w", cmd, err)
 		}
-		time.Sleep(1 * time.Second)
+		time.Sleep(1 * time.Second) // Add delay between commands
 	}
 
 	return nil
 }
 
-func ExecuteCommand() error {
-	conn, err := ssh.Dial("tcp", routerIPs[0]+":22", &ssh.ClientConfig{
+func executeCommand() error {
+	config := &ssh.ClientConfig{
 		User: username,
 		Auth: []ssh.AuthMethod{
 			ssh.Password(password),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to dial: %w", err)
 	}
 
-	defer conn.Close() // Close the connection after use
+	client, err := ssh.Dial("tcp", routerIP+":22", config)
+	if err != nil {
+		return fmt.Errorf("failed to connect to router: %w", err)
+	}
+	defer client.Close()
 
-	session, err := conn.NewSession()
+	session, err := client.NewSession()
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
-
-	defer session.Close() // Close the session after use
+	defer session.Close()
 
 	var stdoutBuf bytes.Buffer
 	session.Stdout = &stdoutBuf
 
-	if err := session.RequestPty("vt100", 80, 40, ssh.TerminalModes{}); err != nil {
-		return fmt.Errorf("request for pseudo terminal failed: %w", err)
-	}
+	// Command to execute
+	command := "show ip ospf interface " + interface1
 
-	command := "show ip ospf interface " + intf
-	if err := session.Run(command); err != nil {
+	err = session.Run(command)
+	if err != nil {
 		return fmt.Errorf("failed to run command '%s': %w", command, err)
 	}
 
 	output := stdoutBuf.String()
-	fmt.Println(output) // Print the output to console
+	fmt.Println(output) // Print the command output
+
 	return nil
 }
