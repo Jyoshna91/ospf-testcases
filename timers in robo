@@ -205,3 +205,18 @@ func TestOspfAuthentication(t *testing.T){
     fmt.Printf("Router 1 Ping Output:\n%s\n", router1Output)
 }
 
+output:-
+show ip ospf interface ethernet 1/11
+ Ethernet1/11 is up, line protocol is up
+    IP address 192.168.11.2/24, Process ID 2 VRF default, area 0.0.0.0
+    Enabled by interface configuration
+    State DR, Network type BROADCAST, cost 25
+    Index 1, Transmit delay 1 sec, Router Priority 1
+    Designated Router ID: 110.1.1.1, address: 192.168.11.2
+    No backup designated router on this network
+    0 Neighbors, flooding to 0, adjacent with 0
+    Timer intervals: Hello 25, Dead 50, Wait 50, Retransmit 5
+      Hello timer due in 00:00:20
+    No authentication
+    Number of opaque link LSAs: 0, checksum sum 0
+
